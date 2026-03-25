@@ -246,6 +246,11 @@ body {
   background: var(--color-surface-hover);
 }
 
+.btn--sm {
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+
 /* ─── Table ──────────────────────────────────────────────────────────────── */
 .data-table {
   width: 100%;

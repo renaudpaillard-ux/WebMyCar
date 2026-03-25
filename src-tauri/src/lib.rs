@@ -21,6 +21,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::vehicles::list_vehicles,
             commands::vehicles::create_vehicle,
+            commands::vehicles::update_vehicle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

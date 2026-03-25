@@ -87,3 +87,10 @@ When working on a task:
 - Do not rename files or folders casually.
 - Do not add dependencies unless the gain is clear.
 - Do not change database schema without a migration.
+
+## Language conventions
+
+- All user-facing text must be written in French.
+- All code identifiers must remain in English.
+- Do not translate technical identifiers, database fields, file names, or function names.
+- Use natural and consistent French wording in the UI.

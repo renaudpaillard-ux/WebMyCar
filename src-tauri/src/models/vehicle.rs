@@ -31,3 +31,15 @@ pub struct CreateVehicleInput {
     pub fuel_type: Option<String>,
     pub initial_mileage: Option<i64>,
 }
+
+/// DTO for updating an existing vehicle.
+#[derive(Debug, Deserialize)]
+pub struct UpdateVehicleInput {
+    pub id: String,
+    pub name: String,
+    pub brand: Option<String>,
+    pub model: Option<String>,
+    pub registration: Option<String>,
+    pub fuel_type: Option<String>,
+    pub initial_mileage: Option<i64>,
+}

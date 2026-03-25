@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { createVehicle, listVehicles } from "../features/vehicles/api";
-import type { CreateVehicleInput, Vehicle } from "../features/vehicles/types";
+import { createVehicle, listVehicles, updateVehicle } from "../features/vehicles/api";
+import type { CreateVehicleInput, UpdateVehicleInput, Vehicle } from "../features/vehicles/types";
 
 const FUEL_TYPES = ["Essence", "Diesel", "Électrique", "Hybride", "Hybride rechargeable", "GPL", "Autre"];
 
-// ─── Create vehicle form ──────────────────────────────────────────────────────
+// ─── Vehicle modal (create + edit) ───────────────────────────────────────────
 
-interface CreateFormState {
+interface VehicleFormState {
   name: string;
   brand: string;
   model: string;
@@ -15,7 +15,7 @@ interface CreateFormState {
   initial_mileage: string;
 }
 
-const EMPTY_FORM: CreateFormState = {
+const EMPTY_FORM: VehicleFormState = {
   name: "",
   brand: "",
   model: "",
@@ -24,17 +24,33 @@ const EMPTY_FORM: CreateFormState = {
   initial_mileage: "",
 };
 
-interface CreateModalProps {
-  onClose: () => void;
-  onCreated: (vehicle: Vehicle) => void;
+function vehicleToForm(vehicle: Vehicle): VehicleFormState {
+  return {
+    name: vehicle.name,
+    brand: vehicle.brand ?? "",
+    model: vehicle.model ?? "",
+    registration: vehicle.registration ?? "",
+    fuel_type: vehicle.fuel_type ?? "",
+    initial_mileage: String(vehicle.initial_mileage),
+  };
 }
 
-function CreateVehicleModal({ onClose, onCreated }: CreateModalProps) {
-  const [form, setForm] = useState<CreateFormState>(EMPTY_FORM);
+interface VehicleModalProps {
+  vehicle?: Vehicle; // present = edit mode, absent = create mode
+  onClose: () => void;
+  onSaved: (vehicle: Vehicle) => void;
+}
+
+function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
+  const isEditing = vehicle !== undefined;
+
+  const [form, setForm] = useState<VehicleFormState>(() =>
+    vehicle ? vehicleToForm(vehicle) : EMPTY_FORM,
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  function set(field: keyof CreateFormState) {
+  function set(field: keyof VehicleFormState) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
@@ -55,21 +71,37 @@ function CreateVehicleModal({ onClose, onCreated }: CreateModalProps) {
       return;
     }
 
-    const input: CreateVehicleInput = {
-      name: form.name.trim(),
-      brand: form.brand.trim() || null,
-      model: form.model.trim() || null,
-      registration: form.registration.trim() || null,
-      fuel_type: form.fuel_type || null,
-      initial_mileage: mileage,
-    };
-
     setSubmitting(true);
     try {
-      const vehicle = await createVehicle(input);
-      onCreated(vehicle);
+      let saved: Vehicle;
+      if (isEditing) {
+        const input: UpdateVehicleInput = {
+          id: vehicle.id,
+          name: form.name.trim(),
+          brand: form.brand.trim() || null,
+          model: form.model.trim() || null,
+          registration: form.registration.trim() || null,
+          fuel_type: form.fuel_type || null,
+          initial_mileage: mileage,
+        };
+        saved = await updateVehicle(input);
+      } else {
+        const input: CreateVehicleInput = {
+          name: form.name.trim(),
+          brand: form.brand.trim() || null,
+          model: form.model.trim() || null,
+          registration: form.registration.trim() || null,
+          fuel_type: form.fuel_type || null,
+          initial_mileage: mileage,
+        };
+        saved = await createVehicle(input);
+      }
+      onSaved(saved);
     } catch (err) {
-      setError(typeof err === "string" ? err : "Impossible de créer le véhicule.");
+      const fallback = isEditing
+        ? "Impossible de modifier le véhicule."
+        : "Impossible de créer le véhicule.";
+      setError(typeof err === "string" ? err : fallback);
     } finally {
       setSubmitting(false);
     }
@@ -79,7 +111,9 @@ function CreateVehicleModal({ onClose, onCreated }: CreateModalProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
-          <h2 className="modal__title">Nouveau véhicule</h2>
+          <h2 className="modal__title">
+            {isEditing ? "Modifier le véhicule" : "Nouveau véhicule"}
+          </h2>
           <button className="modal__close" onClick={onClose} aria-label="Fermer">
             ×
           </button>
@@ -188,7 +222,7 @@ function CreateVehicleModal({ onClose, onCreated }: CreateModalProps) {
               Annuler
             </button>
             <button type="submit" className="btn btn--primary" disabled={submitting}>
-              {submitting ? "Enregistrement…" : "Ajouter"}
+              {submitting ? "Enregistrement…" : isEditing ? "Enregistrer" : "Ajouter"}
             </button>
           </div>
         </form>
@@ -201,9 +235,10 @@ function CreateVehicleModal({ onClose, onCreated }: CreateModalProps) {
 
 interface VehicleRowProps {
   vehicle: Vehicle;
+  onEdit: (vehicle: Vehicle) => void;
 }
 
-function VehicleRow({ vehicle }: VehicleRowProps) {
+function VehicleRow({ vehicle, onEdit }: VehicleRowProps) {
   const subtitle = [vehicle.brand, vehicle.model].filter(Boolean).join(" ");
 
   return (
@@ -221,6 +256,11 @@ function VehicleRow({ vehicle }: VehicleRowProps) {
         )}
       </td>
       <td>{vehicle.initial_mileage.toLocaleString()} km</td>
+      <td>
+        <button className="btn btn--secondary btn--sm" onClick={() => onEdit(vehicle)}>
+          Modifier
+        </button>
+      </td>
     </tr>
   );
 }
@@ -232,6 +272,7 @@ export default function VehiclesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
 
   useEffect(() => {
     listVehicles()
@@ -240,9 +281,18 @@ export default function VehiclesPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function handleCreated(vehicle: Vehicle) {
-    setVehicles((prev) => [vehicle, ...prev]);
+  function closeModal() {
     setShowCreate(false);
+    setEditingVehicle(null);
+  }
+
+  function handleSaved(vehicle: Vehicle) {
+    if (editingVehicle) {
+      setVehicles((prev) => prev.map((v) => (v.id === vehicle.id ? vehicle : v)));
+    } else {
+      setVehicles((prev) => [vehicle, ...prev]);
+    }
+    closeModal();
   }
 
   return (
@@ -277,18 +327,23 @@ export default function VehiclesPage() {
               <th>Immatriculation</th>
               <th>Carburant</th>
               <th>Kilométrage initial</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {vehicles.map((v) => (
-              <VehicleRow key={v.id} vehicle={v} />
+              <VehicleRow key={v.id} vehicle={v} onEdit={setEditingVehicle} />
             ))}
           </tbody>
         </table>
       )}
 
-      {showCreate && (
-        <CreateVehicleModal onClose={() => setShowCreate(false)} onCreated={handleCreated} />
+      {(showCreate || editingVehicle !== null) && (
+        <VehicleModal
+          vehicle={editingVehicle ?? undefined}
+          onClose={closeModal}
+          onSaved={handleSaved}
+        />
       )}
     </>
   );

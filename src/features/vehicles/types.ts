@@ -27,3 +27,14 @@ export interface CreateVehicleInput {
   fuel_type: string | null;
   initial_mileage: number;
 }
+
+/** Input DTO for updating an existing vehicle. */
+export interface UpdateVehicleInput {
+  id: string;
+  name: string;
+  brand: string | null;
+  model: string | null;
+  registration: string | null;
+  fuel_type: string | null;
+  initial_mileage: number;
+}
