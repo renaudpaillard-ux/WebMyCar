@@ -1,5 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
-import DatePickerField from "../components/DatePickerField";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import ModalFrame from "../components/ModalFrame";
 import { createFuelEntry, deleteFuelEntry, listEnergyTypes, listFuelEntries, updateFuelEntry } from "../features/fuel/api";
 import type { CreateFuelEntryInput, EnergyType, FuelEntry, UpdateFuelEntryInput } from "../features/fuel/types";
@@ -261,6 +260,7 @@ interface FuelModalProps {
 
 function FuelModal({ entry, entries, vehicles, energyTypes, selectedVehicleId, onClose, onSaved }: FuelModalProps) {
   const isEditing = entry !== undefined;
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
   const vehicleMap = useMemo(
     () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])),
     [vehicles],
@@ -322,6 +322,14 @@ function FuelModal({ entry, entries, vehicles, energyTypes, selectedVehicleId, o
       setLastAutoPricePerLiter(computedPricePerLiter);
     }
   }, [form.liters, form.price_per_liter, form.total_price, lastAutoPricePerLiter]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      dateInputRef.current?.focus();
+    }, 100);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   function setField(field: keyof FuelFormState) {
     return (
@@ -476,20 +484,23 @@ function FuelModal({ entry, entries, vehicles, energyTypes, selectedVehicleId, o
           <div className="modal__body">
               {error && <div className="error-banner">{error}</div>}
 
-              <div className="form-row--2col">
-                <div>
+              <div className="form-row row g-3">
+                <div className="col-md-3">
                   <label className="form-label form-label--required" htmlFor="fuel-date">
                     Date
                   </label>
-                  <DatePickerField
+                  <input
+                    ref={dateInputRef}
                     id="fuel-date"
+                    name="entry_date"
+                    type="date"
+                    className="form-input form-control"
                     value={form.entry_date}
-                    onChange={(nextValue) => setForm((previous) => ({ ...previous, entry_date: nextValue ?? "" }))}
+                    onChange={setField("entry_date")}
                     required
-                    autoFocus
                   />
                 </div>
-                <div>
+                <div className="col-md-9">
                   <label className="form-label form-label--required" htmlFor="fuel-vehicle">
                     Véhicule
                   </label>
