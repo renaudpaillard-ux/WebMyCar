@@ -117,19 +117,51 @@ function computePricePerLiterMillis(totalPriceInput: string, litersInput: string
   return Math.round((totalPriceCents / 100) * 1000 / liters);
 }
 
-function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(cents / 100);
-}
-
-function formatConsumption(value: number | null): string {
-  if (value === null) {
+function formatNumber(value: number | null | undefined, options?: Intl.NumberFormatOptions): string {
+  if (value === null || value === undefined) {
     return "—";
   }
 
-  return value.toLocaleString("fr-FR", {
+  return value.toLocaleString("fr-FR", options);
+}
+
+function formatInteger(value: number | null | undefined): string {
+  return formatNumber(value, {
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatQuantity(value: number | null | undefined): string {
+  return formatNumber(value, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatMoneyAmount(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) {
+    return "—";
+  }
+
+  return formatNumber(cents / 100, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatUnitPrice(millis: number | null | undefined): string {
+  if (millis === null || millis === undefined) {
+    return "—";
+  }
+
+  return formatNumber(millis / 1000, {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+}
+
+function formatConsumption(value: number | null | undefined): string {
+  return formatNumber(value, {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
@@ -721,6 +753,12 @@ interface FuelRowProps {
   onDelete: (entry: FuelEntry) => void;
 }
 
+interface FuelStats {
+  averageConsumption: number | null;
+  latestConsumption: number | null;
+  trackedDistance: number | null;
+}
+
 function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
   return (
     <tr
@@ -731,30 +769,12 @@ function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
       }}
     >
       <td>{formatDisplayDate(entry.entry_date)}</td>
-      <td>{entry.mileage.toLocaleString("fr-FR")} km</td>
-      <td>
-        {entry.trip_distance_km !== null ? (
-          `${entry.trip_distance_km.toLocaleString("fr-FR")} km`
-        ) : (
-          <span className="data-table__muted">—</span>
-        )}
-      </td>
-      <td>{formatDecimal(entry.liters, 3)} L</td>
-      <td>{formatCurrency(entry.total_price_cents)}</td>
-      <td>
-        {entry.price_per_liter_millis !== null ? (
-          `${formatPricePerLiterInput(entry.price_per_liter_millis)} € / L`
-        ) : (
-          <span className="data-table__muted">—</span>
-        )}
-      </td>
-      <td>
-        {entry.consumption_l_per_100 !== null ? (
-          `${formatConsumption(entry.consumption_l_per_100)}`
-        ) : (
-          <span className="data-table__muted">—</span>
-        )}
-      </td>
+      <td className="cell--number">{formatInteger(entry.mileage)}</td>
+      <td className="cell--number">{formatInteger(entry.trip_distance_km)}</td>
+      <td className="cell--number">{formatQuantity(entry.liters)}</td>
+      <td className="cell--number">{formatMoneyAmount(entry.total_price_cents)}</td>
+      <td className="cell--number">{formatUnitPrice(entry.price_per_liter_millis)}</td>
+      <td className="cell--number">{formatConsumption(entry.consumption_l_per_100)}</td>
       <td>
         <span className="badge badge--neutral">{entry.energy_type_label}</span>
       </td>
@@ -778,6 +798,38 @@ function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
       </td>
     </tr>
   );
+}
+
+function getFuelStats(entries: FuelEntry[]): FuelStats {
+  const consumptions = entries
+    .map((entry) => entry.consumption_l_per_100)
+    .filter((value): value is number => value !== null);
+
+  const averageConsumption = consumptions.length > 0
+    ? consumptions.reduce((sum, value) => sum + value, 0) / consumptions.length
+    : null;
+
+  const latestConsumptionEntry = entries.find((entry) => entry.consumption_l_per_100 !== null);
+  const latestConsumption = latestConsumptionEntry?.consumption_l_per_100 ?? null;
+
+  if (entries.length < 2) {
+    return {
+      averageConsumption,
+      latestConsumption,
+      trackedDistance: null,
+    };
+  }
+
+  const mileages = entries.map((entry) => entry.mileage);
+  const minMileage = Math.min(...mileages);
+  const maxMileage = Math.max(...mileages);
+  const trackedDistance = maxMileage > minMileage ? maxMileage - minMileage : null;
+
+  return {
+    averageConsumption,
+    latestConsumption,
+    trackedDistance,
+  };
 }
 
 export default function FuelPage() {
@@ -842,6 +894,7 @@ export default function FuelPage() {
     [entries, selectedVehicleId],
   );
   const displayedEntries = useMemo(() => sortFuelEntries(filteredEntries), [filteredEntries]);
+  const stats = useMemo(() => getFuelStats(displayedEntries), [displayedEntries]);
   const hasActiveEnergyTypes = energyTypes.length > 0;
   const hasActiveVehicles = vehicles.length > 0;
   const isEmpty = !loading && selectedVehicleId !== "" && displayedEntries.length === 0;
@@ -884,23 +937,40 @@ export default function FuelPage() {
       </div>
 
       {hasActiveVehicles && (
-        <div className="form-row" style={{ maxWidth: 360 }}>
-          <label className="form-label form-label--required" htmlFor="fuel-page-vehicle">
-            Véhicule
-          </label>
-          <select
-            id="fuel-page-vehicle"
-            className="form-select"
-            value={selectedVehicleId}
-            onChange={(event) => setStoredSelectedVehicleId(event.target.value)}
-          >
-            {vehicles.map((vehicle) => (
-              <option key={vehicle.id} value={vehicle.id}>
-                {vehicle.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <>
+          <div className="form-row" style={{ maxWidth: 360 }}>
+            <label className="form-label form-label--required" htmlFor="fuel-page-vehicle">
+              Véhicule
+            </label>
+            <select
+              id="fuel-page-vehicle"
+              className="form-select"
+              value={selectedVehicleId}
+              onChange={(event) => setStoredSelectedVehicleId(event.target.value)}
+            >
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="fuel-stats">
+            <div className="fuel-stats__card">
+              <div className="fuel-stats__label">Conso moyenne</div>
+              <div className="fuel-stats__value">{formatConsumption(stats.averageConsumption)}</div>
+            </div>
+            <div className="fuel-stats__card">
+              <div className="fuel-stats__label">Dernière conso</div>
+              <div className="fuel-stats__value">{formatConsumption(stats.latestConsumption)}</div>
+            </div>
+            <div className="fuel-stats__card">
+              <div className="fuel-stats__label">Distance suivie</div>
+              <div className="fuel-stats__value">{formatInteger(stats.trackedDistance)}</div>
+            </div>
+          </div>
+        </>
       )}
 
       {error && <div className="error-banner">{error}</div>}
@@ -940,12 +1010,12 @@ export default function FuelPage() {
           <thead>
             <tr>
               <th>Date</th>
-              <th>Kilométrage</th>
-              <th>Parcouru (km)</th>
-              <th>Quantité</th>
-              <th>Montant</th>
-              <th>Prix au litre</th>
-              <th>Conso. (L/100)</th>
+              <th className="cell--number">Km total (km)</th>
+              <th className="cell--number">Parcouru (km)</th>
+              <th className="cell--number">Quantité (L)</th>
+              <th className="cell--number">Montant (€)</th>
+              <th className="cell--number">Prix/L (€/L)</th>
+              <th className="cell--number">Conso (L/100)</th>
               <th>Énergie</th>
               <th>Lieu</th>
               <th>Plein</th>
