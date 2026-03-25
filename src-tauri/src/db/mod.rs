@@ -1,10 +1,13 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use rusqlite::Connection;
 use crate::error::{AppError, Result};
 
 /// Tauri managed state holding the SQLite connection behind a mutex.
 pub struct DbState(pub Mutex<Connection>);
+
+/// Tauri managed state holding the current database file path.
+pub struct CurrentDatabasePath(pub Mutex<PathBuf>);
 
 /// Open the database at `path` and run all pending migrations.
 pub fn open_and_migrate(path: &Path) -> Result<Connection> {

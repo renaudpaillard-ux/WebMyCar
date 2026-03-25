@@ -49,3 +49,67 @@ pub struct UpdateFuelEntryInput {
     pub note: Option<String>,
     pub is_full_tank: bool,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ImportFuelCsvInput {
+    pub vehicle_id: String,
+    pub csv_content: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum FuelCsvPreviewStatus {
+    Ok,
+    Warning,
+    Rejected,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum FuelCsvPreviewAction {
+    Create,
+    Replace,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FuelCsvPreviewLine {
+    pub line_number: usize,
+    pub date: String,
+    pub km: String,
+    pub quantite: String,
+    pub montant: String,
+    pub prix_litre: String,
+    pub lieu: String,
+    pub plein: String,
+    pub energie: String,
+    pub observations: String,
+    pub status: FuelCsvPreviewStatus,
+    pub import_action: Option<FuelCsvPreviewAction>,
+    pub messages: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PreviewFuelCsvResult {
+    pub total_rows: usize,
+    pub valid_rows: usize,
+    pub replacement_rows: usize,
+    pub warning_rows: usize,
+    pub rejected_rows: usize,
+    pub lines: Vec<FuelCsvPreviewLine>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportFuelCsvLineError {
+    pub line_number: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportFuelCsvResult {
+    pub created_count: usize,
+    pub replaced_count: usize,
+    pub rejected_count: usize,
+    pub recalculated_price_per_liter_count: usize,
+    pub preferred_energy_fallback_count: usize,
+    pub errors: Vec<ImportFuelCsvLineError>,
+}

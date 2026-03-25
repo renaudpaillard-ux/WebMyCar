@@ -346,6 +346,102 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.fuel-import-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fuel-import-summary--preview {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.fuel-import-summary__item {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: #fafafa;
+}
+
+.fuel-import-summary__label {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.fuel-import-summary__value {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fuel-import-errors__title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.fuel-import-errors__list {
+  padding-left: 18px;
+  color: var(--color-text-secondary);
+}
+
+.fuel-import-preview__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fuel-import-preview__meta-label {
+  display: block;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.fuel-import-preview__meta-value {
+  display: block;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.fuel-import-preview__table-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: auto;
+  max-height: 420px;
+}
+
+.fuel-import-preview__table {
+  min-width: 1180px;
+  margin: 0;
+}
+
+.fuel-import-preview__observations {
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fuel-import-preview__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fuel-import-preview__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
 /* ─── Empty state ────────────────────────────────────────────────────────── */
 .empty-state {
   display: flex;
@@ -395,6 +491,10 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.modal--wide {
+  width: min(1180px, calc(100vw - 32px));
 }
 
 .modal--dragged {
@@ -585,9 +685,24 @@ body {
   color: var(--color-text-secondary);
 }
 
+.badge--success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.badge--info {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .badge--warning {
   background: #fff7ed;
   color: #c2410c;
+}
+
+.badge--danger {
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 .empty-state--compact {

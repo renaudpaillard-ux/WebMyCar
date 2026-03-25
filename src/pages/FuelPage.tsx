@@ -1,7 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import ModalFrame from "../components/ModalFrame";
-import { createFuelEntry, deleteFuelEntry, listEnergyTypes, listFuelEntries, updateFuelEntry } from "../features/fuel/api";
-import type { CreateFuelEntryInput, EnergyType, FuelEntry, UpdateFuelEntryInput } from "../features/fuel/types";
+import { createFuelEntry, deleteFuelEntry, importFuelCsv, listEnergyTypes, listFuelEntries, previewFuelCsv, updateFuelEntry } from "../features/fuel/api";
+import type {
+  CreateFuelEntryInput,
+  EnergyType,
+  FuelCsvPreviewAction,
+  FuelEntry,
+  ImportFuelCsvResult,
+  PreviewFuelCsvResult,
+  UpdateFuelEntryInput,
+} from "../features/fuel/types";
 import { listVehicles } from "../features/vehicles/api";
 import type { Vehicle } from "../features/vehicles/types";
 
@@ -162,8 +170,8 @@ function formatUnitPrice(millis: number | null | undefined): string {
 
 function formatConsumption(value: number | null | undefined): string {
   return formatNumber(value, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 
@@ -746,6 +754,201 @@ function DeleteFuelEntryModal({ entry, onCancel, onConfirmed }: DeleteFuelEntryM
   );
 }
 
+function FuelImportSummaryModal({ result, onClose }: FuelImportSummaryModalProps) {
+  return (
+    <ModalFrame title="Résultat de l'import CSV" onClose={onClose}>
+      <div className="modal__body">
+        <div className="fuel-import-summary">
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Entrées créées</span>
+            <strong className="fuel-import-summary__value">{formatInteger(result.created_count)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Entrées remplacées</span>
+            <strong className="fuel-import-summary__value">{formatInteger(result.replaced_count)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Lignes rejetées</span>
+            <strong className="fuel-import-summary__value">{formatInteger(result.rejected_count)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Prix/L recalculés</span>
+            <strong className="fuel-import-summary__value">{formatInteger(result.recalculated_price_per_liter_count)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Énergie du véhicule utilisée</span>
+            <strong className="fuel-import-summary__value">{formatInteger(result.preferred_energy_fallback_count)}</strong>
+          </div>
+        </div>
+
+        {result.errors.length > 0 && (
+          <div className="fuel-import-errors">
+            <p className="fuel-import-errors__title">Lignes rejetées</p>
+            <ul className="fuel-import-errors__list">
+              {result.errors.map((error) => (
+                <li key={`${error.line_number}-${error.message}`}>
+                  Ligne {error.line_number} : {error.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      <div className="modal__footer">
+        <button type="button" className="btn btn--primary" onClick={onClose}>
+          Fermer
+        </button>
+      </div>
+    </ModalFrame>
+  );
+}
+
+function getPreviewActionLabel(action: FuelCsvPreviewAction | null): string | null {
+  if (action === "create") {
+    return "Création";
+  }
+
+  if (action === "replace") {
+    return "Remplacement";
+  }
+
+  return null;
+}
+
+function FuelImportPreviewModal({ pendingImport, importing, onCancel, onConfirm }: FuelImportPreviewModalProps) {
+  const { fileName, vehicleName, preview } = pendingImport;
+  const hasImportableRows = preview.valid_rows > 0;
+
+  return (
+    <ModalFrame
+      title="Prévisualisation de l'import CSV"
+      onClose={onCancel}
+      className="modal--wide"
+    >
+      <div className="modal__body">
+        <div className="fuel-import-preview__meta">
+          <div>
+            <span className="fuel-import-preview__meta-label">Fichier</span>
+            <strong className="fuel-import-preview__meta-value">{fileName}</strong>
+          </div>
+          <div>
+            <span className="fuel-import-preview__meta-label">Véhicule</span>
+            <strong className="fuel-import-preview__meta-value">{vehicleName}</strong>
+          </div>
+        </div>
+
+        <div className="fuel-import-summary fuel-import-summary--preview">
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Lignes analysées</span>
+            <strong className="fuel-import-summary__value">{formatInteger(preview.total_rows)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Lignes valides</span>
+            <strong className="fuel-import-summary__value">{formatInteger(preview.valid_rows)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Remplacements prévus</span>
+            <strong className="fuel-import-summary__value">{formatInteger(preview.replacement_rows)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Lignes avec avertissements</span>
+            <strong className="fuel-import-summary__value">{formatInteger(preview.warning_rows)}</strong>
+          </div>
+          <div className="fuel-import-summary__item">
+            <span className="fuel-import-summary__label">Lignes rejetées</span>
+            <strong className="fuel-import-summary__value">{formatInteger(preview.rejected_rows)}</strong>
+          </div>
+        </div>
+
+        <div className="fuel-import-preview__table-wrap">
+          <table className="data-table fuel-import-preview__table">
+            <thead>
+              <tr>
+                <th>Ligne</th>
+                <th>Date</th>
+                <th className="cell--number">Km</th>
+                <th className="cell--number">Quantité</th>
+                <th className="cell--number">Montant</th>
+                <th className="cell--number">Prix/L</th>
+                <th>Lieu</th>
+                <th>Plein</th>
+                <th>Énergie</th>
+                <th>Observations</th>
+                <th>Statut</th>
+                <th>Message(s)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.lines.map((line) => {
+                const actionLabel = getPreviewActionLabel(line.import_action);
+
+                return (
+                  <tr key={line.line_number}>
+                    <td className="cell--number">{formatInteger(line.line_number)}</td>
+                    <td>{line.date}</td>
+                    <td className="cell--number">{line.km}</td>
+                    <td className="cell--number">{line.quantite}</td>
+                    <td className="cell--number">{line.montant}</td>
+                    <td className="cell--number">{line.prix_litre}</td>
+                    <td>{line.lieu}</td>
+                    <td>{line.plein}</td>
+                    <td>{line.energie}</td>
+                    <td className="fuel-import-preview__observations" title={line.observations}>
+                      {line.observations}
+                    </td>
+                    <td>
+                      <div className="fuel-import-preview__status">
+                        {line.status === "rejected" ? (
+                          <span className="badge badge--danger">Rejetée</span>
+                        ) : (
+                          <>
+                            {actionLabel && (
+                              <span className={`badge ${line.import_action === "replace" ? "badge--info" : "badge--success"}`}>
+                                {actionLabel}
+                              </span>
+                            )}
+                            <span className={`badge ${line.status === "warning" ? "badge--warning" : "badge--neutral"}`}>
+                              {line.status === "warning" ? "Avertissement" : "OK"}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      {line.messages.length > 0 ? (
+                        <div className="fuel-import-preview__messages">
+                          {line.messages.map((message) => (
+                            <div key={message}>{message}</div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="data-table__muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="modal__footer">
+        <button type="button" className="btn btn--secondary" onClick={onCancel} disabled={importing}>
+          Annuler
+        </button>
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={onConfirm}
+          disabled={importing || !hasImportableRows}
+        >
+          {importing ? "Import en cours…" : "Importer"}
+        </button>
+      </div>
+    </ModalFrame>
+  );
+}
+
 interface FuelRowProps {
   entry: FuelEntry;
   canEdit: boolean;
@@ -757,6 +960,26 @@ interface FuelStats {
   averageConsumption: number | null;
   latestConsumption: number | null;
   trackedDistance: number | null;
+}
+
+interface FuelImportSummaryModalProps {
+  result: ImportFuelCsvResult;
+  onClose: () => void;
+}
+
+interface PendingFuelImport {
+  fileName: string;
+  vehicleId: string;
+  vehicleName: string;
+  csvContent: string;
+  preview: PreviewFuelCsvResult;
+}
+
+interface FuelImportPreviewModalProps {
+  pendingImport: PendingFuelImport;
+  importing: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
 }
 
 function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
@@ -833,6 +1056,7 @@ function getFuelStats(entries: FuelEntry[]): FuelStats {
 }
 
 export default function FuelPage() {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [entries, setEntries] = useState<FuelEntry[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [energyTypes, setEnergyTypes] = useState<EnergyType[]>([]);
@@ -844,9 +1068,12 @@ export default function FuelPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FuelEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<FuelEntry | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [pendingImport, setPendingImport] = useState<PendingFuelImport | null>(null);
+  const [importResult, setImportResult] = useState<ImportFuelCsvResult | null>(null);
 
-  useEffect(() => {
-    Promise.all([listFuelEntries(), listVehicles(false), listEnergyTypes()])
+  async function loadFuelPageData() {
+    return Promise.all([listFuelEntries(), listVehicles(false), listEnergyTypes()])
       .then(([fuelEntries, activeVehicles, activeEnergyTypes]) => {
         setEntries(fuelEntries);
         setVehicles(activeVehicles);
@@ -861,6 +1088,10 @@ export default function FuelPage() {
         ),
       )
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    void loadFuelPageData();
   }, []);
 
   const selectedVehicleId = useMemo(() => {
@@ -918,6 +1149,62 @@ export default function FuelPage() {
     setEntries((previous) => previous.filter((current) => current.id !== id));
   }
 
+  async function handleImportFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !selectedVehicleId || !selectedVehicle) {
+      return;
+    }
+
+    setImporting(true);
+    setError(null);
+
+    try {
+      const csvContent = await file.text();
+      const preview = await previewFuelCsv({
+        vehicle_id: selectedVehicleId,
+        csv_content: csvContent,
+      });
+
+      setPendingImport({
+        fileName: file.name,
+        vehicleId: selectedVehicleId,
+        vehicleName: selectedVehicle.name,
+        csvContent,
+        preview,
+      });
+    } catch (currentError) {
+      setError(typeof currentError === "string" ? currentError : "Impossible d'analyser le fichier CSV.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!pendingImport) {
+      return;
+    }
+
+    setImporting(true);
+    setError(null);
+
+    try {
+      const result = await importFuelCsv({
+        vehicle_id: pendingImport.vehicleId,
+        csv_content: pendingImport.csvContent,
+      });
+
+      await loadFuelPageData();
+      setPendingImport(null);
+      setImportResult(result);
+    } catch (currentError) {
+      setError(typeof currentError === "string" ? currentError : "Impossible d'importer le fichier CSV.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <>
       <div className="page-header">
@@ -935,6 +1222,14 @@ export default function FuelPage() {
           + Ajouter une entrée
         </button>
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        style={{ display: "none" }}
+        onChange={handleImportFileChange}
+      />
 
       {hasActiveVehicles && (
         <>
@@ -954,6 +1249,17 @@ export default function FuelPage() {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="form-row">
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!selectedVehicleId || importing}
+            >
+              {importing ? "Import en cours…" : "Importer CSV"}
+            </button>
           </div>
 
           <div className="fuel-stats">
@@ -1053,6 +1359,22 @@ export default function FuelPage() {
           entry={deletingEntry}
           onCancel={() => setDeletingEntry(null)}
           onConfirmed={handleDeleted}
+        />
+      )}
+
+      {pendingImport !== null && (
+        <FuelImportPreviewModal
+          pendingImport={pendingImport}
+          importing={importing}
+          onCancel={() => setPendingImport(null)}
+          onConfirm={handleConfirmImport}
+        />
+      )}
+
+      {importResult !== null && (
+        <FuelImportSummaryModal
+          result={importResult}
+          onClose={() => setImportResult(null)}
         />
       )}
     </>

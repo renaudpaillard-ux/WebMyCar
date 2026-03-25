@@ -9,13 +9,14 @@ interface ModalFrameProps {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  className?: string;
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-export default function ModalFrame({ title, onClose, children }: ModalFrameProps) {
+export default function ModalFrame({ title, onClose, children, className }: ModalFrameProps) {
   const modalRef = useRef<HTMLDivElement | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const [position, setPosition] = useState<ModalPosition | null>(null);
@@ -94,7 +95,7 @@ export default function ModalFrame({ title, onClose, children }: ModalFrameProps
     <div className="modal-overlay" onClick={onClose}>
       <div
         ref={modalRef}
-        className={"modal" + (position ? " modal--dragged" : "")}
+        className={["modal", className, position ? "modal--dragged" : ""].filter(Boolean).join(" ")}
         onClick={(event) => event.stopPropagation()}
         style={position ? { left: position.left, top: position.top } : undefined}
       >

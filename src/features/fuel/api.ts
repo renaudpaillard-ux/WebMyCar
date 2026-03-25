@@ -1,5 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CreateFuelEntryInput, EnergyType, FuelEntry, UpdateFuelEntryInput } from "./types";
+import type {
+  CreateFuelEntryInput,
+  EnergyType,
+  FuelEntry,
+  ImportFuelCsvInput,
+  ImportFuelCsvResult,
+  PreviewFuelCsvResult,
+  UpdateFuelEntryInput,
+} from "./types";
 
 export async function listFuelEntries(): Promise<FuelEntry[]> {
   return invoke<FuelEntry[]>("list_fuel_entries");
@@ -19,4 +27,12 @@ export async function updateFuelEntry(input: UpdateFuelEntryInput): Promise<Fuel
 
 export async function deleteFuelEntry(id: string): Promise<void> {
   return invoke<void>("delete_fuel_entry", { id });
+}
+
+export async function importFuelCsv(input: ImportFuelCsvInput): Promise<ImportFuelCsvResult> {
+  return invoke<ImportFuelCsvResult>("import_fuel_csv", { input });
+}
+
+export async function previewFuelCsv(input: ImportFuelCsvInput): Promise<PreviewFuelCsvResult> {
+  return invoke<PreviewFuelCsvResult>("preview_fuel_csv", { input });
 }
