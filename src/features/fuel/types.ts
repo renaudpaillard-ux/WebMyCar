@@ -12,6 +12,8 @@ export interface FuelEntry {
   station: string | null;
   note: string | null;
   is_full_tank: boolean;
+  trip_distance_km: number | null;
+  consumption_l_per_100: number | null;
   created_at: string;
   updated_at: string;
 }

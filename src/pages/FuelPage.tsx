@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import DatePickerField from "../components/DatePickerField";
 import ModalFrame from "../components/ModalFrame";
 import { createFuelEntry, deleteFuelEntry, listEnergyTypes, listFuelEntries, updateFuelEntry } from "../features/fuel/api";
 import type { CreateFuelEntryInput, EnergyType, FuelEntry, UpdateFuelEntryInput } from "../features/fuel/types";
@@ -32,9 +33,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const CATEGORY_ORDER = ["petrol", "diesel", "gas_energy", "additive"];
+const SELECTED_VEHICLE_STORAGE_KEY = "webmycar:selected-fuel-vehicle";
 
 function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 const EMPTY_FORM: FuelFormState = {
@@ -119,6 +125,73 @@ function formatCurrency(cents: number): string {
   }).format(cents / 100);
 }
 
+function formatConsumption(value: number | null): string {
+  if (value === null) {
+    return "—";
+  }
+
+  return value.toLocaleString("fr-FR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+function formatDisplayDate(value: string): string {
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) {
+    return value;
+  }
+
+  return `${day}/${month}/${year}`;
+}
+
+function sortFuelEntries(entries: FuelEntry[]): FuelEntry[] {
+  return [...entries].sort((left, right) =>
+    right.mileage - left.mileage
+    || right.entry_date.localeCompare(left.entry_date)
+    || right.created_at.localeCompare(left.created_at),
+  );
+}
+
+function getStationSuggestions(entries: FuelEntry[], vehicleId: string): string[] {
+  const byRecency = [...entries].sort((left, right) =>
+    right.entry_date.localeCompare(left.entry_date)
+    || right.created_at.localeCompare(left.created_at),
+  );
+
+  function collectSuggestions(source: FuelEntry[]) {
+    const seen = new Set<string>();
+    const suggestions: string[] = [];
+
+    for (const entry of source) {
+      const station = entry.station?.trim();
+      if (!station) {
+        continue;
+      }
+
+      const normalized = station.toLocaleLowerCase("fr-FR");
+      if (seen.has(normalized)) {
+        continue;
+      }
+
+      seen.add(normalized);
+      suggestions.push(station);
+    }
+
+    return suggestions;
+  }
+
+  const vehicleSuggestions = vehicleId
+    ? collectSuggestions(byRecency.filter((entry) => entry.vehicle_id === vehicleId))
+    : [];
+
+  if (vehicleSuggestions.length > 0) {
+    return vehicleSuggestions;
+  }
+
+  return collectSuggestions(byRecency);
+}
+
 function shouldIgnoreRowDoubleClick(target: EventTarget | null): boolean {
   return target instanceof HTMLElement
     && target.closest("button, input, select, textarea, a, label") !== null;
@@ -178,24 +251,28 @@ function groupEnergyTypes(energyTypes: EnergyType[]): EnergyTypeGroup[] {
 
 interface FuelModalProps {
   entry?: FuelEntry;
+  entries: FuelEntry[];
   vehicles: Vehicle[];
   energyTypes: EnergyType[];
+  selectedVehicleId?: string;
   onClose: () => void;
   onSaved: (entry: FuelEntry) => void;
 }
 
-function FuelModal({ entry, vehicles, energyTypes, onClose, onSaved }: FuelModalProps) {
+function FuelModal({ entry, entries, vehicles, energyTypes, selectedVehicleId, onClose, onSaved }: FuelModalProps) {
   const isEditing = entry !== undefined;
   const vehicleMap = useMemo(
     () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])),
     [vehicles],
   );
+  const stationListId = useId();
   const [form, setForm] = useState<FuelFormState>(() => {
     if (entry) {
       return fuelEntryToForm(entry);
     }
 
-    const firstVehicle = vehicles[0];
+    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId);
+    const firstVehicle = selectedVehicle ?? vehicles[0];
     return {
       ...EMPTY_FORM,
       vehicle_id: firstVehicle?.id ?? "",
@@ -217,6 +294,10 @@ function FuelModal({ entry, vehicles, energyTypes, onClose, onSaved }: FuelModal
   });
 
   const groupedEnergyTypes = useMemo(() => groupEnergyTypes(energyTypes), [energyTypes]);
+  const stationSuggestions = useMemo(
+    () => getStationSuggestions(entries, form.vehicle_id),
+    [entries, form.vehicle_id],
+  );
 
   useEffect(() => {
     const computedPricePerLiter = formatPricePerLiterInput(
@@ -400,12 +481,11 @@ function FuelModal({ entry, vehicles, energyTypes, onClose, onSaved }: FuelModal
                   <label className="form-label form-label--required" htmlFor="fuel-date">
                     Date
                   </label>
-                  <input
+                  <DatePickerField
                     id="fuel-date"
-                    className="form-input"
-                    type="date"
                     value={form.entry_date}
-                    onChange={setField("entry_date")}
+                    onChange={(nextValue) => setForm((previous) => ({ ...previous, entry_date: nextValue ?? "" }))}
+                    required
                     autoFocus
                   />
                 </div>
@@ -538,8 +618,17 @@ function FuelModal({ entry, vehicles, energyTypes, onClose, onSaved }: FuelModal
                     type="text"
                     value={form.station}
                     onChange={setField("station")}
+                    list={stationSuggestions.length > 0 ? stationListId : undefined}
+                    autoComplete="off"
                     placeholder="ex. TotalEnergies, Paris"
                   />
+                  {stationSuggestions.length > 0 && (
+                    <datalist id={stationListId}>
+                      {stationSuggestions.map((station) => (
+                        <option key={station} value={station} />
+                      ))}
+                    </datalist>
+                  )}
                 </div>
                 <div>
                   <label className="form-label" htmlFor="fuel-note">
@@ -598,7 +687,7 @@ function DeleteFuelEntryModal({ entry, onCancel, onConfirmed }: DeleteFuelEntryM
         <div className="modal__body">
           {error && <div className="error-banner">{error}</div>}
           <p>
-            Voulez-vous supprimer l&apos;entrée du <strong>{entry.entry_date}</strong> pour{" "}
+            Voulez-vous supprimer l&apos;entrée du <strong>{formatDisplayDate(entry.entry_date)}</strong> pour{" "}
             <strong>{entry.vehicle_name}</strong> ?
           </p>
         </div>
@@ -630,14 +719,27 @@ function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
         }
       }}
     >
-      <td>{entry.entry_date}</td>
-      <td>{entry.vehicle_name}</td>
+      <td>{formatDisplayDate(entry.entry_date)}</td>
       <td>{entry.mileage.toLocaleString("fr-FR")} km</td>
+      <td>
+        {entry.trip_distance_km !== null ? (
+          `${entry.trip_distance_km.toLocaleString("fr-FR")} km`
+        ) : (
+          <span className="data-table__muted">—</span>
+        )}
+      </td>
       <td>{formatDecimal(entry.liters, 3)} L</td>
       <td>{formatCurrency(entry.total_price_cents)}</td>
       <td>
         {entry.price_per_liter_millis !== null ? (
           `${formatPricePerLiterInput(entry.price_per_liter_millis)} € / L`
+        ) : (
+          <span className="data-table__muted">—</span>
+        )}
+      </td>
+      <td>
+        {entry.consumption_l_per_100 !== null ? (
+          `${formatConsumption(entry.consumption_l_per_100)}`
         ) : (
           <span className="data-table__muted">—</span>
         )}
@@ -671,6 +773,9 @@ export default function FuelPage() {
   const [entries, setEntries] = useState<FuelEntry[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [energyTypes, setEnergyTypes] = useState<EnergyType[]>([]);
+  const [storedSelectedVehicleId, setStoredSelectedVehicleId] = useState(() =>
+    window.localStorage.getItem(SELECTED_VEHICLE_STORAGE_KEY) ?? "",
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -695,10 +800,40 @@ export default function FuelPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const selectedVehicleId = useMemo(() => {
+    if (vehicles.length === 0) {
+      return "";
+    }
+
+    if (storedSelectedVehicleId && vehicles.some((vehicle) => vehicle.id === storedSelectedVehicleId)) {
+      return storedSelectedVehicleId;
+    }
+
+    return vehicles[0]?.id ?? "";
+  }, [vehicles, storedSelectedVehicleId]);
+
+  useEffect(() => {
+    if (!selectedVehicleId) {
+      window.localStorage.removeItem(SELECTED_VEHICLE_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(SELECTED_VEHICLE_STORAGE_KEY, selectedVehicleId);
+  }, [selectedVehicleId]);
+
   const activeVehicleIds = useMemo(() => new Set(vehicles.map((vehicle) => vehicle.id)), [vehicles]);
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ?? null,
+    [vehicles, selectedVehicleId],
+  );
+  const filteredEntries = useMemo(
+    () => entries.filter((entry) => entry.vehicle_id === selectedVehicleId),
+    [entries, selectedVehicleId],
+  );
+  const displayedEntries = useMemo(() => sortFuelEntries(filteredEntries), [filteredEntries]);
   const hasActiveEnergyTypes = energyTypes.length > 0;
   const hasActiveVehicles = vehicles.length > 0;
-  const isEmpty = !loading && entries.length === 0;
+  const isEmpty = !loading && selectedVehicleId !== "" && displayedEntries.length === 0;
 
   function closeModal() {
     setShowCreate(false);
@@ -737,9 +872,29 @@ export default function FuelPage() {
         </button>
       </div>
 
+      {hasActiveVehicles && (
+        <div className="form-row" style={{ maxWidth: 360 }}>
+          <label className="form-label form-label--required" htmlFor="fuel-page-vehicle">
+            Véhicule
+          </label>
+          <select
+            id="fuel-page-vehicle"
+            className="form-select"
+            value={selectedVehicleId}
+            onChange={(event) => setStoredSelectedVehicleId(event.target.value)}
+          >
+            {vehicles.map((vehicle) => (
+              <option key={vehicle.id} value={vehicle.id}>
+                {vehicle.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {error && <div className="error-banner">{error}</div>}
 
-      {!loading && !hasActiveVehicles && entries.length === 0 ? (
+      {!loading && !hasActiveVehicles ? (
         <div className="empty-state">
           <p className="empty-state__title">Aucun véhicule actif</p>
           <p className="empty-state__body">
@@ -757,7 +912,9 @@ export default function FuelPage() {
         <div className="empty-state">
           <p className="empty-state__title">Aucune entrée carburant</p>
           <p className="empty-state__body">
-            Ajoutez votre premier plein ou votre première recharge pour commencer votre suivi.
+            {selectedVehicle
+              ? `Aucune entrée n'est encore enregistrée pour ${selectedVehicle.name}.`
+              : "Ajoutez votre premier plein ou votre première recharge pour commencer votre suivi."}
           </p>
           <button
             className="btn btn--primary"
@@ -772,11 +929,12 @@ export default function FuelPage() {
           <thead>
             <tr>
               <th>Date</th>
-              <th>Véhicule</th>
               <th>Kilométrage</th>
+              <th>Parcouru (km)</th>
               <th>Quantité</th>
               <th>Montant</th>
               <th>Prix au litre</th>
+              <th>Conso. (L/100)</th>
               <th>Énergie</th>
               <th>Lieu</th>
               <th>Plein</th>
@@ -784,7 +942,7 @@ export default function FuelPage() {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
+            {displayedEntries.map((entry) => (
               <FuelRow
                 key={entry.id}
                 entry={entry}
@@ -800,8 +958,10 @@ export default function FuelPage() {
       {(showCreate || editingEntry !== null) && (
         <FuelModal
           entry={editingEntry ?? undefined}
+          entries={entries}
           vehicles={vehicles}
           energyTypes={energyTypes}
+          selectedVehicleId={selectedVehicleId}
           onClose={closeModal}
           onSaved={handleSaved}
         />

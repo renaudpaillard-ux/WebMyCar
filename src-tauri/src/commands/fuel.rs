@@ -60,32 +60,16 @@ pub fn list_fuel_entries(state: State<DbState>) -> Result<Vec<FuelEntry>> {
          FROM fuel_entries f
          INNER JOIN vehicles v ON v.id = f.vehicle_id
          INNER JOIN energy_types et ON et.id = f.energy_type_id
-         ORDER BY f.entry_date DESC, f.created_at DESC",
+         ORDER BY f.vehicle_id ASC, f.mileage ASC, f.entry_date ASC, f.created_at ASC",
     )?;
 
     let entries = stmt
         .query_map([], |row| {
-            Ok(FuelEntry {
-                id: row.get(0)?,
-                vehicle_id: row.get(1)?,
-                vehicle_name: row.get(2)?,
-                entry_date: row.get(3)?,
-                mileage: row.get(4)?,
-                liters: row.get(5)?,
-                total_price_cents: row.get(6)?,
-                price_per_liter_millis: row.get(7)?,
-                energy_type_id: row.get(8)?,
-                energy_type_label: row.get(9)?,
-                station: row.get(10)?,
-                note: row.get(11)?,
-                is_full_tank: row.get::<_, i64>(12)? != 0,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
-            })
+            map_fuel_entry_row(row)
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-    Ok(entries)
+    Ok(with_metrics(entries))
 }
 
 #[tauri::command]
@@ -290,29 +274,118 @@ fn get_fuel_entry_by_id(conn: &rusqlite::Connection, id: &str) -> Result<FuelEnt
          INNER JOIN energy_types et ON et.id = f.energy_type_id
          WHERE f.id = ?1",
         [id],
-        |row| {
-            Ok(FuelEntry {
-                id: row.get(0)?,
-                vehicle_id: row.get(1)?,
-                vehicle_name: row.get(2)?,
-                entry_date: row.get(3)?,
-                mileage: row.get(4)?,
-                liters: row.get(5)?,
-                total_price_cents: row.get(6)?,
-                price_per_liter_millis: row.get(7)?,
-                energy_type_id: row.get(8)?,
-                energy_type_label: row.get(9)?,
-                station: row.get(10)?,
-                note: row.get(11)?,
-                is_full_tank: row.get::<_, i64>(12)? != 0,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
-            })
-        },
+        map_fuel_entry_row,
     )?;
 
-    Ok(entry)
+    let entries = list_fuel_entries_for_vehicle(conn, &entry.vehicle_id)?;
+    entries
+        .into_iter()
+        .find(|current| current.id == entry.id)
+        .ok_or_else(|| AppError::msg("Entrée carburant introuvable"))
 }
+
+fn list_fuel_entries_for_vehicle(conn: &rusqlite::Connection, vehicle_id: &str) -> Result<Vec<FuelEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.vehicle_id, v.name, f.entry_date, f.mileage, f.liters,
+                f.total_price_cents, f.price_per_liter_millis, f.energy_type_id,
+                et.label, f.station, f.note, f.is_full_tank, f.created_at, f.updated_at
+         FROM fuel_entries f
+         INNER JOIN vehicles v ON v.id = f.vehicle_id
+         INNER JOIN energy_types et ON et.id = f.energy_type_id
+         WHERE f.vehicle_id = ?1
+         ORDER BY f.mileage ASC, f.entry_date ASC, f.created_at ASC",
+    )?;
+
+    let entries = stmt
+        .query_map([vehicle_id], map_fuel_entry_row)?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(with_metrics(entries))
+}
+
+fn map_fuel_entry_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FuelEntry> {
+    Ok(FuelEntry {
+        id: row.get(0)?,
+        vehicle_id: row.get(1)?,
+        vehicle_name: row.get(2)?,
+        entry_date: row.get(3)?,
+        mileage: row.get(4)?,
+        liters: row.get(5)?,
+        total_price_cents: row.get(6)?,
+        price_per_liter_millis: row.get(7)?,
+        energy_type_id: row.get(8)?,
+        energy_type_label: row.get(9)?,
+        station: row.get(10)?,
+        note: row.get(11)?,
+        is_full_tank: row.get::<_, i64>(12)? != 0,
+        trip_distance_km: None,
+        consumption_l_per_100: None,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+    })
+}
+
+fn with_metrics(entries: Vec<FuelEntry>) -> Vec<FuelEntry> {
+    let mut entries = entries;
+    let mut indices_by_vehicle = std::collections::HashMap::<String, Vec<usize>>::new();
+
+    for (index, entry) in entries.iter().enumerate() {
+        indices_by_vehicle
+            .entry(entry.vehicle_id.clone())
+            .or_default()
+            .push(index);
+    }
+
+    for indices in indices_by_vehicle.values() {
+        let mut sorted_indices = indices.clone();
+        sorted_indices.sort_by(|left, right| {
+            let left_entry = &entries[*left];
+            let right_entry = &entries[*right];
+
+            left_entry
+                .mileage
+                .cmp(&right_entry.mileage)
+                .then_with(|| left_entry.entry_date.cmp(&right_entry.entry_date))
+                .then_with(|| left_entry.created_at.cmp(&right_entry.created_at))
+        });
+
+        let mut previous_full_index: Option<usize> = None;
+        let mut previous_entry_index: Option<usize> = None;
+        let mut liters_since_previous_full = 0.0_f64;
+
+        for current_index in sorted_indices {
+            if let Some(previous_index) = previous_entry_index {
+                let trip_distance = entries[current_index].mileage - entries[previous_index].mileage;
+                if trip_distance > 0 {
+                    entries[current_index].trip_distance_km = Some(trip_distance);
+                }
+            }
+
+            liters_since_previous_full += entries[current_index].liters;
+
+            if !entries[current_index].is_full_tank {
+                previous_entry_index = Some(current_index);
+                continue;
+            }
+
+            if let Some(previous_index) = previous_full_index {
+                let distance = entries[current_index].mileage - entries[previous_index].mileage;
+
+                if distance > 0 {
+                    entries[current_index].consumption_l_per_100 =
+                        Some((liters_since_previous_full / distance as f64) * 100.0);
+                }
+            }
+
+            previous_full_index = Some(current_index);
+            previous_entry_index = Some(current_index);
+            liters_since_previous_full = 0.0;
+        }
+    }
+
+    entries
+}
+
 fn normalize_optional_text(value: Option<String>) -> Option<String> {
     value.and_then(|current| {
         let trimmed = current.trim().to_string();

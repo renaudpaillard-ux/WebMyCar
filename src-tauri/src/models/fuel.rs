@@ -15,6 +15,8 @@ pub struct FuelEntry {
     pub station: Option<String>,
     pub note: Option<String>,
     pub is_full_tank: bool,
+    pub trip_distance_km: Option<i64>,
+    pub consumption_l_per_100: Option<f64>,
     pub created_at: String,
     pub updated_at: String,
 }
