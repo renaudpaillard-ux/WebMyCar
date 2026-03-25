@@ -5,6 +5,7 @@
 WebMyCar is a macOS desktop application for personal vehicle management.
 
 Core scope for V1:
+
 - vehicles
 - odometer entries
 - fuel entries
@@ -14,6 +15,7 @@ Core scope for V1:
 - dashboard
 
 Tech stack:
+
 - Tauri v2
 - React
 - TypeScript
@@ -67,6 +69,7 @@ Tech stack:
 ## Safety rules for modifications
 
 Before implementing:
+
 1. inspect the relevant files
 2. explain the intended change briefly
 3. implement the minimum viable change
@@ -75,6 +78,7 @@ Before implementing:
 ## Testing / validation
 
 After any non-trivial change:
+
 - run the relevant build or checks
 - report what was verified
 - mention what was not verified
@@ -82,7 +86,7 @@ After any non-trivial change:
 ## Output style
 
 When proposing code changes:
+
 - be concrete
 - reference files precisely
 - avoid long theoretical explanations
-

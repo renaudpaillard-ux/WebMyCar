@@ -3,6 +3,7 @@
 ## Project
 
 WebMyCar is a macOS desktop application built with:
+
 - Tauri v2
 - React
 - TypeScript
@@ -41,12 +42,14 @@ The product goal is to manage personal vehicle data locally with a clean desktop
 ## Code style
 
 ### React / TypeScript
+
 - Use typed props and typed return values when helpful.
 - Prefer simple state flows.
 - Keep business logic out of large page components when possible.
 - Avoid over-engineered hooks.
 
 ### Rust / Tauri
+
 - Keep commands explicit.
 - Keep DB logic centralized.
 - Validate inputs.
@@ -70,6 +73,7 @@ The product goal is to manage personal vehicle data locally with a clean desktop
 ## Expected workflow
 
 When working on a task:
+
 1. inspect files first
 2. summarize current behavior
 3. propose a focused plan
@@ -83,4 +87,3 @@ When working on a task:
 - Do not rename files or folders casually.
 - Do not add dependencies unless the gain is clear.
 - Do not change database schema without a migration.
-
