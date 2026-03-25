@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import ModalFrame from "../components/ModalFrame";
 import { createFuelEntry, deleteFuelEntry, listEnergyTypes, listFuelEntries, updateFuelEntry } from "../features/fuel/api";
 import type { CreateFuelEntryInput, EnergyType, FuelEntry, UpdateFuelEntryInput } from "../features/fuel/types";
 import { listVehicles } from "../features/vehicles/api";
@@ -116,6 +117,11 @@ function formatCurrency(cents: number): string {
     style: "currency",
     currency: "EUR",
   }).format(cents / 100);
+}
+
+function shouldIgnoreRowDoubleClick(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    && target.closest("button, input, select, textarea, a, label") !== null;
 }
 
 function fuelEntryToForm(entry: FuelEntry): FuelFormState {
@@ -348,52 +354,45 @@ function FuelModal({ entry, vehicles, energyTypes, onClose, onSaved }: FuelModal
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal__header">
-          <h2 className="modal__title">
-            {isEditing ? "Modifier une entrée carburant" : "Nouvelle entrée carburant"}
-          </h2>
-          <button className="modal__close" onClick={onClose} aria-label="Fermer">
-            ×
-          </button>
-        </div>
-
-        {vehicles.length === 0 ? (
-          <>
-            <div className="modal__body">
-              <div className="empty-state empty-state--compact">
-                <p className="empty-state__title">Aucun véhicule actif</p>
-                <p className="empty-state__body">
-                  Créez d&apos;abord un véhicule actif pour enregistrer un plein ou une recharge.
-                </p>
-              </div>
+    <ModalFrame
+      title={isEditing ? "Modifier une entrée carburant" : "Nouvelle entrée carburant"}
+      onClose={onClose}
+    >
+      {vehicles.length === 0 ? (
+        <>
+          <div className="modal__body">
+            <div className="empty-state empty-state--compact">
+              <p className="empty-state__title">Aucun véhicule actif</p>
+              <p className="empty-state__body">
+                Créez d&apos;abord un véhicule actif pour enregistrer un plein ou une recharge.
+              </p>
             </div>
-            <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={onClose}>
-                Fermer
-              </button>
+          </div>
+          <div className="modal__footer">
+            <button type="button" className="btn btn--secondary" onClick={onClose}>
+              Fermer
+            </button>
+          </div>
+        </>
+      ) : energyTypes.length === 0 ? (
+        <>
+          <div className="modal__body">
+            <div className="empty-state empty-state--compact">
+              <p className="empty-state__title">Aucune énergie disponible</p>
+              <p className="empty-state__body">
+                Aucune énergie active n&apos;est disponible pour enregistrer une entrée carburant.
+              </p>
             </div>
-          </>
-        ) : energyTypes.length === 0 ? (
-          <>
-            <div className="modal__body">
-              <div className="empty-state empty-state--compact">
-                <p className="empty-state__title">Aucune énergie disponible</p>
-                <p className="empty-state__body">
-                  Aucune énergie active n&apos;est disponible pour enregistrer une entrée carburant.
-                </p>
-              </div>
-            </div>
-            <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={onClose}>
-                Fermer
-              </button>
-            </div>
-          </>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <div className="modal__body">
+          </div>
+          <div className="modal__footer">
+            <button type="button" className="btn btn--secondary" onClick={onClose}>
+              Fermer
+            </button>
+          </div>
+        </>
+      ) : (
+        <form className="modal__form" onSubmit={handleSubmit}>
+          <div className="modal__body">
               {error && <div className="error-banner">{error}</div>}
 
               <div className="form-row--2col">
@@ -407,6 +406,7 @@ function FuelModal({ entry, vehicles, energyTypes, onClose, onSaved }: FuelModal
                     type="date"
                     value={form.entry_date}
                     onChange={setField("entry_date")}
+                    autoFocus
                   />
                 </div>
                 <div>
@@ -555,20 +555,19 @@ function FuelModal({ entry, vehicles, energyTypes, onClose, onSaved }: FuelModal
                   />
                 </div>
               </div>
-            </div>
+          </div>
 
-            <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={onClose}>
-                Annuler
-              </button>
-              <button type="submit" className="btn btn--primary" disabled={submitting}>
-                {submitting ? "Enregistrement…" : isEditing ? "Enregistrer" : "Ajouter"}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
+          <div className="modal__footer">
+            <button type="button" className="btn btn--secondary" onClick={onClose}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn--primary" disabled={submitting}>
+              {submitting ? (isEditing ? "Enregistrement…" : "Ajout…") : isEditing ? "Enregistrer" : "Ajouter"}
+            </button>
+          </div>
+        </form>
+      )}
+    </ModalFrame>
   );
 }
 
@@ -595,14 +594,7 @@ function DeleteFuelEntryModal({ entry, onCancel, onConfirmed }: DeleteFuelEntryM
   }
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal__header">
-          <h2 className="modal__title">Supprimer l&apos;entrée carburant</h2>
-          <button className="modal__close" onClick={onCancel} aria-label="Fermer">
-            ×
-          </button>
-        </div>
+    <ModalFrame title="Supprimer l'entrée carburant" onClose={onCancel}>
         <div className="modal__body">
           {error && <div className="error-banner">{error}</div>}
           <p>
@@ -614,12 +606,11 @@ function DeleteFuelEntryModal({ entry, onCancel, onConfirmed }: DeleteFuelEntryM
           <button type="button" className="btn btn--secondary" onClick={onCancel}>
             Annuler
           </button>
-          <button type="button" className="btn btn--danger" disabled={submitting} onClick={handleConfirm}>
+          <button type="button" className="btn btn--danger" disabled={submitting} onClick={handleConfirm} autoFocus>
             {submitting ? "Suppression…" : "Supprimer"}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }
 
@@ -632,7 +623,13 @@ interface FuelRowProps {
 
 function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
   return (
-    <tr>
+    <tr
+      onDoubleClick={(event) => {
+        if (canEdit && !shouldIgnoreRowDoubleClick(event.target)) {
+          onEdit(entry);
+        }
+      }}
+    >
       <td>{entry.entry_date}</td>
       <td>{entry.vehicle_name}</td>
       <td>{entry.mileage.toLocaleString("fr-FR")} km</td>

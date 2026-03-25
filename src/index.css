@@ -364,6 +364,11 @@ body {
   overflow: hidden;
 }
 
+.modal--dragged {
+  position: fixed;
+  margin: 0;
+}
+
 .modal__header {
   display: flex;
   align-items: center;
@@ -371,6 +376,8 @@ body {
   padding: 18px 24px 16px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
 }
 
 .modal__title {
@@ -400,6 +407,7 @@ body {
   padding: 20px 24px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .modal__footer {
@@ -410,6 +418,14 @@ body {
   padding: 14px 24px;
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
+}
+
+.modal__form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ─── Form fields ────────────────────────────────────────────────────────── */

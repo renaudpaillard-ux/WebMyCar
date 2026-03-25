@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import ModalFrame from "../components/ModalFrame";
 import { listEnergyTypes } from "../features/fuel/api";
 import type { EnergyType } from "../features/fuel/types";
 import { archiveVehicle, createVehicle, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
@@ -118,6 +119,11 @@ function formatEnergyTypeLabels(
   energyTypeLabels: Map<string, string>,
 ): string {
   return ids.map((id) => energyTypeLabels.get(id) ?? id).join(", ");
+}
+
+function shouldIgnoreRowDoubleClick(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    && target.closest("button, input, select, textarea, a, label") !== null;
 }
 
 interface VehicleModalProps {
@@ -244,36 +250,29 @@ function VehicleModal({ vehicle, energyTypes, onClose, onSaved }: VehicleModalPr
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal__header">
-          <h2 className="modal__title">
-            {isEditing ? "Modifier le véhicule" : "Nouveau véhicule"}
-          </h2>
-          <button className="modal__close" onClick={onClose} aria-label="Fermer">
-            ×
-          </button>
-        </div>
-
-        {energyTypes.length === 0 ? (
-          <>
-            <div className="modal__body">
-              <div className="empty-state empty-state--compact">
-                <p className="empty-state__title">Aucune énergie disponible</p>
-                <p className="empty-state__body">
-                  Ajoutez d&apos;abord des types d&apos;énergie en base pour configurer un véhicule.
-                </p>
-              </div>
+    <ModalFrame
+      title={isEditing ? "Modifier le véhicule" : "Nouveau véhicule"}
+      onClose={onClose}
+    >
+      {energyTypes.length === 0 ? (
+        <>
+          <div className="modal__body">
+            <div className="empty-state empty-state--compact">
+              <p className="empty-state__title">Aucune énergie disponible</p>
+              <p className="empty-state__body">
+                Ajoutez d&apos;abord des types d&apos;énergie en base pour configurer un véhicule.
+              </p>
             </div>
-            <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={onClose}>
-                Fermer
-              </button>
-            </div>
-          </>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <div className="modal__body">
+          </div>
+          <div className="modal__footer">
+            <button type="button" className="btn btn--secondary" onClick={onClose}>
+              Fermer
+            </button>
+          </div>
+        </>
+      ) : (
+        <form className="modal__form" onSubmit={handleSubmit}>
+          <div className="modal__body">
               {error && <div className="error-banner">{error}</div>}
 
               <div className="form-row">
@@ -411,20 +410,19 @@ function VehicleModal({ vehicle, energyTypes, onClose, onSaved }: VehicleModalPr
                   placeholder="0"
                 />
               </div>
-            </div>
+          </div>
 
-            <div className="modal__footer">
-              <button type="button" className="btn btn--secondary" onClick={onClose}>
-                Annuler
-              </button>
-              <button type="submit" className="btn btn--primary" disabled={submitting}>
-                {submitting ? "Enregistrement…" : isEditing ? "Enregistrer" : "Ajouter"}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
+          <div className="modal__footer">
+            <button type="button" className="btn btn--secondary" onClick={onClose}>
+              Annuler
+            </button>
+            <button type="submit" className="btn btn--primary" disabled={submitting}>
+              {submitting ? (isEditing ? "Enregistrement…" : "Ajout…") : isEditing ? "Enregistrer" : "Ajouter"}
+            </button>
+          </div>
+        </form>
+      )}
+    </ModalFrame>
   );
 }
 
@@ -451,14 +449,7 @@ function ArchiveConfirmModal({ vehicle, onCancel, onConfirmed }: ArchiveConfirmM
   }
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal__header">
-          <h2 className="modal__title">Archiver le véhicule</h2>
-          <button className="modal__close" onClick={onCancel} aria-label="Fermer">
-            ×
-          </button>
-        </div>
+    <ModalFrame title="Archiver le véhicule" onClose={onCancel}>
         <div className="modal__body">
           {error && <div className="error-banner">{error}</div>}
           <p>
@@ -479,8 +470,7 @@ function ArchiveConfirmModal({ vehicle, onCancel, onConfirmed }: ArchiveConfirmM
             {submitting ? "Archivage…" : "Archiver"}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }
 
@@ -513,7 +503,14 @@ function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive 
   }
 
   return (
-    <tr className={vehicle.is_archived ? "row--archived" : undefined}>
+    <tr
+      className={vehicle.is_archived ? "row--archived" : undefined}
+      onDoubleClick={(event) => {
+        if (!vehicle.is_archived && !shouldIgnoreRowDoubleClick(event.target)) {
+          onEdit(vehicle);
+        }
+      }}
+    >
       <td>
         <div style={{ fontWeight: 500 }}>{vehicle.name}</div>
         {subtitle && <div className="data-table__muted">{subtitle}</div>}
