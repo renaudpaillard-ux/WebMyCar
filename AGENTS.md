@@ -90,3 +90,26 @@ When proposing code changes:
 - be concrete
 - reference files precisely
 - avoid long theoretical explanations
+
+## Language rules
+
+- All user-facing text MUST be written in French:
+  - page titles
+  - navigation labels
+  - buttons
+  - form labels
+  - placeholders
+  - empty states
+  - user messages
+
+- All code MUST remain in English:
+  - variable names
+  - function names
+  - file names
+  - database schema
+  - TypeScript and Rust types
+
+- Do NOT translate technical identifiers into French.
+
+- If existing UI text is in English, it should be converted to French unless explicitly stated otherwise.
+- Use natural and consistent French wording (avoid literal translations).
