@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createVehicle, listVehicles, updateVehicle } from "../features/vehicles/api";
+import { archiveVehicle, createVehicle, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
 import type { CreateVehicleInput, UpdateVehicleInput, Vehicle } from "../features/vehicles/types";
 
 const FUEL_TYPES = ["Essence", "Diesel", "Électrique", "Hybride", "Hybride rechargeable", "GPL", "Autre"];
@@ -231,18 +231,92 @@ function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
   );
 }
 
+// ─── Archive confirmation modal ───────────────────────────────────────────────
+
+interface ArchiveConfirmModalProps {
+  vehicle: Vehicle;
+  onCancel: () => void;
+  onConfirmed: (id: string) => void;
+}
+
+function ArchiveConfirmModal({ vehicle, onCancel, onConfirmed }: ArchiveConfirmModalProps) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await archiveVehicle(vehicle.id);
+      onConfirmed(vehicle.id);
+    } catch (err) {
+      setError(typeof err === "string" ? err : "Impossible d'archiver le véhicule.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__header">
+          <h2 className="modal__title">Archiver le véhicule</h2>
+          <button className="modal__close" onClick={onCancel} aria-label="Fermer">
+            ×
+          </button>
+        </div>
+        <div className="modal__body">
+          {error && <div className="error-banner">{error}</div>}
+          <p>
+            Voulez-vous archiver <strong>{vehicle.name}</strong> ? Le véhicule ne sera plus
+            affiché dans la liste principale, mais ses données seront conservées.
+          </p>
+        </div>
+        <div className="modal__footer">
+          <button type="button" className="btn btn--secondary" onClick={onCancel}>
+            Annuler
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger"
+            disabled={submitting}
+            onClick={handleConfirm}
+          >
+            {submitting ? "Archivage…" : "Archiver"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Vehicle list ─────────────────────────────────────────────────────────────
 
 interface VehicleRowProps {
   vehicle: Vehicle;
   onEdit: (vehicle: Vehicle) => void;
+  onArchive: (vehicle: Vehicle) => void;
+  onUnarchive: (id: string) => void;
 }
 
-function VehicleRow({ vehicle, onEdit }: VehicleRowProps) {
+function VehicleRow({ vehicle, onEdit, onArchive, onUnarchive }: VehicleRowProps) {
   const subtitle = [vehicle.brand, vehicle.model].filter(Boolean).join(" ");
+  const [unarchiving, setUnarchiving] = useState(false);
+
+  async function handleUnarchive() {
+    setUnarchiving(true);
+    try {
+      await unarchiveVehicle(vehicle.id);
+      onUnarchive(vehicle.id);
+    } catch (err) {
+      // Surface the error inline — keep the row visible
+      console.error(err);
+    } finally {
+      setUnarchiving(false);
+    }
+  }
 
   return (
-    <tr>
+    <tr className={vehicle.is_archived ? "row--archived" : undefined}>
       <td>
         <div style={{ fontWeight: 500 }}>{vehicle.name}</div>
         {subtitle && <div className="data-table__muted">{subtitle}</div>}
@@ -257,9 +331,27 @@ function VehicleRow({ vehicle, onEdit }: VehicleRowProps) {
       </td>
       <td>{vehicle.initial_mileage.toLocaleString()} km</td>
       <td>
-        <button className="btn btn--secondary btn--sm" onClick={() => onEdit(vehicle)}>
-          Modifier
-        </button>
+        {vehicle.is_archived ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span className="badge badge--neutral">Archivé</span>
+            <button
+              className="btn btn--secondary btn--sm"
+              disabled={unarchiving}
+              onClick={handleUnarchive}
+            >
+              {unarchiving ? "…" : "Réactiver"}
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="btn btn--secondary btn--sm" onClick={() => onEdit(vehicle)}>
+              Modifier
+            </button>
+            <button className="btn btn--secondary btn--sm" onClick={() => onArchive(vehicle)}>
+              Archiver
+            </button>
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -273,13 +365,18 @@ export default function VehiclesPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [archivingVehicle, setArchivingVehicle] = useState<Vehicle | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    listVehicles()
-      .then(setVehicles)
+    listVehicles(showArchived)
+      .then((data) => {
+        setVehicles(data);
+        setError(null);
+      })
       .catch((err) => setError(typeof err === "string" ? err : "Impossible de charger les véhicules."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [showArchived]);
 
   function closeModal() {
     setShowCreate(false);
@@ -295,6 +392,25 @@ export default function VehiclesPage() {
     closeModal();
   }
 
+  function handleArchived(id: string) {
+    setArchivingVehicle(null);
+    if (showArchived) {
+      // Keep the row but flip its archived flag in place
+      setVehicles((prev) => prev.map((v) => (v.id === id ? { ...v, is_archived: true } : v)));
+    } else {
+      // Remove it from the active list
+      setVehicles((prev) => prev.filter((v) => v.id !== id));
+    }
+  }
+
+  function handleUnarchived(id: string) {
+    // The row is always visible when this is called (showArchived is true).
+    // Flip the flag in place so the row switches back to active state.
+    setVehicles((prev) => prev.map((v) => (v.id === id ? { ...v, is_archived: false } : v)));
+  }
+
+  const isEmpty = !loading && vehicles.length === 0;
+
   return (
     <>
       <div className="page-header">
@@ -302,14 +418,24 @@ export default function VehiclesPage() {
           <h1 className="page-header__title">Véhicules</h1>
           <p className="page-header__subtitle">Gérez vos fiches véhicules.</p>
         </div>
-        <button className="btn btn--primary" onClick={() => setShowCreate(true)}>
-          + Ajouter un véhicule
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "var(--color-text-secondary)" }}>
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+            />
+            Afficher les véhicules archivés
+          </label>
+          <button className="btn btn--primary" onClick={() => setShowCreate(true)}>
+            + Ajouter un véhicule
+          </button>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
 
-      {loading ? null : vehicles.length === 0 ? (
+      {loading ? null : isEmpty ? (
         <div className="empty-state">
           <p className="empty-state__title">Aucun véhicule</p>
           <p className="empty-state__body">
@@ -332,7 +458,13 @@ export default function VehiclesPage() {
           </thead>
           <tbody>
             {vehicles.map((v) => (
-              <VehicleRow key={v.id} vehicle={v} onEdit={setEditingVehicle} />
+              <VehicleRow
+                key={v.id}
+                vehicle={v}
+                onEdit={setEditingVehicle}
+                onArchive={setArchivingVehicle}
+                onUnarchive={handleUnarchived}
+              />
             ))}
           </tbody>
         </table>
@@ -343,6 +475,14 @@ export default function VehiclesPage() {
           vehicle={editingVehicle ?? undefined}
           onClose={closeModal}
           onSaved={handleSaved}
+        />
+      )}
+
+      {archivingVehicle !== null && (
+        <ArchiveConfirmModal
+          vehicle={archivingVehicle}
+          onCancel={() => setArchivingVehicle(null)}
+          onConfirmed={handleArchived}
         />
       )}
     </>

@@ -6,19 +6,29 @@ use crate::db::DbState;
 use crate::error::{AppError, Result};
 use crate::models::vehicle::{CreateVehicleInput, UpdateVehicleInput, Vehicle};
 
-/// Return all non-archived vehicles ordered by creation date descending.
+/// Return vehicles ordered by creation date descending.
+/// When `include_archived` is false (the default), only active vehicles are returned.
+/// When true, all vehicles are returned with archived ones listed last.
 #[tauri::command]
-pub fn list_vehicles(state: State<DbState>) -> Result<Vec<Vehicle>> {
+pub fn list_vehicles(state: State<DbState>, include_archived: bool) -> Result<Vec<Vehicle>> {
     let conn = state.0.lock().map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
 
-    let mut stmt = conn.prepare(
+    let sql = if include_archived {
+        "SELECT id, name, brand, model, version, registration, vin, fuel_type,
+                engine_power_hp, purchase_date, purchase_price_cents, initial_mileage,
+                notes, is_archived, created_at, updated_at
+         FROM vehicles
+         ORDER BY is_archived ASC, created_at DESC"
+    } else {
         "SELECT id, name, brand, model, version, registration, vin, fuel_type,
                 engine_power_hp, purchase_date, purchase_price_cents, initial_mileage,
                 notes, is_archived, created_at, updated_at
          FROM vehicles
          WHERE is_archived = 0
-         ORDER BY created_at DESC",
-    )?;
+         ORDER BY created_at DESC"
+    };
+
+    let mut stmt = conn.prepare(sql)?;
 
     let vehicles = stmt
         .query_map([], |row| {
@@ -171,4 +181,44 @@ pub fn update_vehicle(state: State<DbState>, input: UpdateVehicleInput) -> Resul
     )?;
 
     Ok(vehicle)
+}
+
+/// Archive a vehicle by id. Sets is_archived = 1 and updates updated_at.
+/// Returns an error if the vehicle does not exist or is already archived.
+#[tauri::command]
+pub fn archive_vehicle(state: State<DbState>, id: String) -> Result<()> {
+    let conn = state.0.lock().map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let rows_affected = conn.execute(
+        "UPDATE vehicles SET is_archived = 1, updated_at = ?1 WHERE id = ?2 AND is_archived = 0",
+        params![now, id],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(AppError::msg("Véhicule introuvable ou déjà archivé"));
+    }
+
+    Ok(())
+}
+
+/// Unarchive a vehicle by id. Sets is_archived = 0 and updates updated_at.
+/// Returns an error if the vehicle does not exist or is not archived.
+#[tauri::command]
+pub fn unarchive_vehicle(state: State<DbState>, id: String) -> Result<()> {
+    let conn = state.0.lock().map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let rows_affected = conn.execute(
+        "UPDATE vehicles SET is_archived = 0, updated_at = ?1 WHERE id = ?2 AND is_archived = 1",
+        params![now, id],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(AppError::msg("Véhicule introuvable ou déjà actif"));
+    }
+
+    Ok(())
 }

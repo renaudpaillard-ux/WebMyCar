@@ -22,6 +22,8 @@ pub fn run() {
             commands::vehicles::list_vehicles,
             commands::vehicles::create_vehicle,
             commands::vehicles::update_vehicle,
+            commands::vehicles::archive_vehicle,
+            commands::vehicles::unarchive_vehicle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
