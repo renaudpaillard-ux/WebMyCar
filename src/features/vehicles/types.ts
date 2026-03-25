@@ -7,7 +7,9 @@ export interface Vehicle {
   version: string | null;
   registration: string | null;
   vin: string | null;
-  fuel_type: string | null;
+  powertrain_type: string | null;
+  preferred_energy_type_id: string | null;
+  compatible_energy_type_ids: string[];
   engine_power_hp: number | null;
   purchase_date: string | null;
   purchase_price_cents: number | null;
@@ -24,7 +26,9 @@ export interface CreateVehicleInput {
   brand: string | null;
   model: string | null;
   registration: string | null;
-  fuel_type: string | null;
+  powertrain_type: string | null;
+  preferred_energy_type_id: string | null;
+  compatible_energy_type_ids: string[];
   initial_mileage: number;
 }
 
@@ -35,6 +39,8 @@ export interface UpdateVehicleInput {
   brand: string | null;
   model: string | null;
   registration: string | null;
-  fuel_type: string | null;
+  powertrain_type: string | null;
+  preferred_energy_type_id: string | null;
+  compatible_energy_type_ids: string[];
   initial_mileage: number;
 }

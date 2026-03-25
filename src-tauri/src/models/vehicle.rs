@@ -10,7 +10,9 @@ pub struct Vehicle {
     pub version: Option<String>,
     pub registration: Option<String>,
     pub vin: Option<String>,
-    pub fuel_type: Option<String>,
+    pub powertrain_type: Option<String>,
+    pub preferred_energy_type_id: Option<String>,
+    pub compatible_energy_type_ids: Vec<String>,
     pub engine_power_hp: Option<i64>,
     pub purchase_date: Option<String>,
     pub purchase_price_cents: Option<i64>,
@@ -28,7 +30,9 @@ pub struct CreateVehicleInput {
     pub brand: Option<String>,
     pub model: Option<String>,
     pub registration: Option<String>,
-    pub fuel_type: Option<String>,
+    pub powertrain_type: Option<String>,
+    pub preferred_energy_type_id: Option<String>,
+    pub compatible_energy_type_ids: Vec<String>,
     pub initial_mileage: Option<i64>,
 }
 
@@ -40,6 +44,8 @@ pub struct UpdateVehicleInput {
     pub brand: Option<String>,
     pub model: Option<String>,
     pub registration: Option<String>,
-    pub fuel_type: Option<String>,
+    pub powertrain_type: Option<String>,
+    pub preferred_energy_type_id: Option<String>,
+    pub compatible_energy_type_ids: Vec<String>,
     pub initial_mileage: Option<i64>,
 }

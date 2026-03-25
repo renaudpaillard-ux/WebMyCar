@@ -27,10 +27,40 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     )?;
 
     // Add new migrations here in order. Each entry is (name, sql).
-    let migrations: &[(&str, &str)] = &[(
-        "001_create_vehicles",
-        include_str!("migrations/001_create_vehicles.sql"),
-    )];
+    let migrations: &[(&str, &str)] = &[
+        (
+            "001_create_vehicles",
+            include_str!("migrations/001_create_vehicles.sql"),
+        ),
+        (
+            "002_create_fuel_entries",
+            include_str!("migrations/002_create_fuel_entries.sql"),
+        ),
+        (
+            "003_repair_fuel_entries_schema",
+            include_str!("migrations/003_repair_fuel_entries_schema.sql"),
+        ),
+        (
+            "004_create_energy_types_and_refactor_fuel_entries",
+            include_str!("migrations/004_create_energy_types_and_refactor_fuel_entries.sql"),
+        ),
+        (
+            "005_update_energy_types_catalog",
+            include_str!("migrations/005_update_energy_types_catalog.sql"),
+        ),
+        (
+            "006_add_price_per_liter_millis",
+            include_str!("migrations/006_add_price_per_liter_millis.sql"),
+        ),
+        (
+            "007_add_vehicle_powertrain_and_energy_types",
+            include_str!("migrations/007_add_vehicle_powertrain_and_energy_types.sql"),
+        ),
+        (
+            "008_reseed_energy_types_reference",
+            include_str!("migrations/008_reseed_energy_types_reference.sql"),
+        ),
+    ];
 
     for (name, sql) in migrations {
         let count: i64 = conn.query_row(
@@ -40,7 +70,11 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         )?;
 
         if count == 0 {
-            conn.execute_batch(sql)?;
+            if *name == "003_repair_fuel_entries_schema" {
+                repair_fuel_entries_schema(conn)?;
+            } else {
+                conn.execute_batch(sql)?;
+            }
             conn.execute(
                 "INSERT INTO _migrations (name, applied_at) VALUES (?1, datetime('now'))",
                 [name],
@@ -50,4 +84,79 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn repair_fuel_entries_schema(conn: &Connection) -> Result<()> {
+    let table_exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'fuel_entries'",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if table_exists == 0 {
+        return Ok(());
+    }
+
+    if !column_exists(conn, "fuel_entries", "price_per_liter_cents")? {
+        conn.execute_batch(
+            "ALTER TABLE fuel_entries ADD COLUMN price_per_liter_cents INTEGER;",
+        )?;
+    }
+
+    if !column_exists(conn, "fuel_entries", "energy_type")? {
+        conn.execute_batch(
+            "ALTER TABLE fuel_entries ADD COLUMN energy_type TEXT NOT NULL DEFAULT 'other';",
+        )?;
+    }
+
+    if !column_exists(conn, "fuel_entries", "station")? {
+        conn.execute_batch(
+            "ALTER TABLE fuel_entries ADD COLUMN station TEXT;",
+        )?;
+    }
+
+    if !column_exists(conn, "fuel_entries", "note")? {
+        conn.execute_batch(
+            "ALTER TABLE fuel_entries ADD COLUMN note TEXT;",
+        )?;
+    }
+
+    if !column_exists(conn, "fuel_entries", "is_full_tank")? {
+        conn.execute_batch(
+            "ALTER TABLE fuel_entries ADD COLUMN is_full_tank INTEGER NOT NULL DEFAULT 1;",
+        )?;
+    }
+
+    if !column_exists(conn, "fuel_entries", "created_at")? {
+        conn.execute_batch(
+            "ALTER TABLE fuel_entries ADD COLUMN created_at TEXT NOT NULL DEFAULT '';",
+        )?;
+    }
+
+    if !column_exists(conn, "fuel_entries", "updated_at")? {
+        conn.execute_batch(
+            "ALTER TABLE fuel_entries ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';",
+        )?;
+    }
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_fuel_entries_vehicle_id ON fuel_entries(vehicle_id);
+         CREATE INDEX IF NOT EXISTS idx_fuel_entries_entry_date ON fuel_entries(entry_date);",
+    )?;
+
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table_name: &str, column_name: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table_name))?;
+    let mut rows = stmt.query([])?;
+
+    while let Some(row) = rows.next()? {
+        let current_name: String = row.get(1)?;
+        if current_name == column_name {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }

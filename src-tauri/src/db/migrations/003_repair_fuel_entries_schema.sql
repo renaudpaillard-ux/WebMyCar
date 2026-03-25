@@ -1,0 +1,1 @@
+-- Migration handled in Rust to support conditional ALTER TABLE on existing databases.

@@ -1,17 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { listEnergyTypes } from "../features/fuel/api";
+import type { EnergyType } from "../features/fuel/types";
 import { archiveVehicle, createVehicle, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
 import type { CreateVehicleInput, UpdateVehicleInput, Vehicle } from "../features/vehicles/types";
 
-const FUEL_TYPES = ["Essence", "Diesel", "Électrique", "Hybride", "Hybride rechargeable", "GPL", "Autre"];
+const POWERTRAIN_OPTIONS = [
+  { value: "petrol", label: "Essence" },
+  { value: "diesel", label: "Diesel" },
+  { value: "hybrid", label: "Hybride" },
+  { value: "plug_in_hybrid", label: "Hybride rechargeable" },
+  { value: "electric", label: "Électrique" },
+  { value: "lpg", label: "GPL" },
+  { value: "other", label: "Autre" },
+] as const;
 
-// ─── Vehicle modal (create + edit) ───────────────────────────────────────────
+const POWERTRAIN_LABELS = new Map<string, string>(
+  POWERTRAIN_OPTIONS.map((option) => [option.value, option.label]),
+);
+
+const ENERGY_CATEGORY_LABELS: Record<string, string> = {
+  petrol: "Essences",
+  diesel: "Gasoils",
+  gas_energy: "Gaz et énergie",
+  additive: "Additifs",
+};
+
+const ENERGY_CATEGORY_ORDER = ["petrol", "diesel", "gas_energy", "additive"];
+
+interface EnergyTypeGroup {
+  category: string;
+  label: string;
+  options: EnergyType[];
+}
 
 interface VehicleFormState {
   name: string;
   brand: string;
   model: string;
   registration: string;
-  fuel_type: string;
+  powertrain_type: string;
+  compatible_energy_type_ids: string[];
+  preferred_energy_type_id: string;
   initial_mileage: string;
 }
 
@@ -20,9 +49,48 @@ const EMPTY_FORM: VehicleFormState = {
   brand: "",
   model: "",
   registration: "",
-  fuel_type: "",
+  powertrain_type: "",
+  compatible_energy_type_ids: [],
+  preferred_energy_type_id: "",
   initial_mileage: "",
 };
+
+function groupEnergyTypes(energyTypes: EnergyType[]): EnergyTypeGroup[] {
+  const grouped = new Map<string, EnergyType[]>();
+
+  for (const category of ENERGY_CATEGORY_ORDER) {
+    grouped.set(category, []);
+  }
+
+  for (const energyType of energyTypes) {
+    const category = grouped.has(energyType.category) ? energyType.category : "additive";
+    grouped.get(category)?.push(energyType);
+  }
+
+  const result: EnergyTypeGroup[] = [];
+
+  for (const category of ENERGY_CATEGORY_ORDER) {
+    const options = grouped.get(category) ?? [];
+    if (options.length === 0) {
+      continue;
+    }
+
+    const label = ENERGY_CATEGORY_LABELS[category] ?? "Autres";
+    const previousGroup = result[result.length - 1];
+
+    if (previousGroup && previousGroup.label === label) {
+      previousGroup.options.push(...options);
+    } else {
+      result.push({
+        category,
+        label,
+        options: [...options],
+      });
+    }
+  }
+
+  return result;
+}
 
 function vehicleToForm(vehicle: Vehicle): VehicleFormState {
   return {
@@ -30,34 +98,77 @@ function vehicleToForm(vehicle: Vehicle): VehicleFormState {
     brand: vehicle.brand ?? "",
     model: vehicle.model ?? "",
     registration: vehicle.registration ?? "",
-    fuel_type: vehicle.fuel_type ?? "",
+    powertrain_type: vehicle.powertrain_type ?? "",
+    compatible_energy_type_ids: vehicle.compatible_energy_type_ids,
+    preferred_energy_type_id: vehicle.preferred_energy_type_id ?? "",
     initial_mileage: String(vehicle.initial_mileage),
   };
 }
 
+function formatPowertrainLabel(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return POWERTRAIN_LABELS.get(value) ?? value;
+}
+
+function formatEnergyTypeLabels(
+  ids: string[],
+  energyTypeLabels: Map<string, string>,
+): string {
+  return ids.map((id) => energyTypeLabels.get(id) ?? id).join(", ");
+}
+
 interface VehicleModalProps {
-  vehicle?: Vehicle; // present = edit mode, absent = create mode
+  vehicle?: Vehicle;
+  energyTypes: EnergyType[];
   onClose: () => void;
   onSaved: (vehicle: Vehicle) => void;
 }
 
-function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
+function VehicleModal({ vehicle, energyTypes, onClose, onSaved }: VehicleModalProps) {
   const isEditing = vehicle !== undefined;
-
   const [form, setForm] = useState<VehicleFormState>(() =>
     vehicle ? vehicleToForm(vehicle) : EMPTY_FORM,
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  function set(field: keyof VehicleFormState) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  const groupedEnergyTypes = useMemo(() => groupEnergyTypes(energyTypes), [energyTypes]);
+  const preferredEnergyOptions = useMemo(
+    () => energyTypes.filter((energyType) => form.compatible_energy_type_ids.includes(energyType.id)),
+    [energyTypes, form.compatible_energy_type_ids],
+  );
+
+  function setField(field: keyof VehicleFormState) {
+    return (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setForm((previous) => ({ ...previous, [field]: event.target.value }));
     };
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function toggleCompatibleEnergyType(energyTypeId: string) {
+    return (event: React.ChangeEvent<HTMLInputElement>) => {
+      setForm((previous) => {
+        const nextIds = event.target.checked
+          ? [...previous.compatible_energy_type_ids, energyTypeId]
+          : previous.compatible_energy_type_ids.filter((current) => current !== energyTypeId);
+
+        const preferredEnergyTypeId = nextIds.includes(previous.preferred_energy_type_id)
+          ? previous.preferred_energy_type_id
+          : nextIds[0] ?? "";
+
+        return {
+          ...previous,
+          compatible_energy_type_ids: nextIds,
+          preferred_energy_type_id: preferredEnergyTypeId,
+        };
+      });
+    };
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setError(null);
 
     if (!form.name.trim()) {
@@ -65,8 +176,28 @@ function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
       return;
     }
 
-    const mileage = form.initial_mileage.trim() ? parseInt(form.initial_mileage, 10) : 0;
-    if (form.initial_mileage.trim() && isNaN(mileage)) {
+    if (!form.powertrain_type) {
+      setError("La motorisation est obligatoire.");
+      return;
+    }
+
+    if (form.compatible_energy_type_ids.length === 0) {
+      setError("Sélectionnez au moins une énergie compatible.");
+      return;
+    }
+
+    if (!form.preferred_energy_type_id) {
+      setError("L'énergie préférée est obligatoire.");
+      return;
+    }
+
+    if (!form.compatible_energy_type_ids.includes(form.preferred_energy_type_id)) {
+      setError("L'énergie préférée doit faire partie des énergies compatibles.");
+      return;
+    }
+
+    const mileage = form.initial_mileage.trim() ? Number.parseInt(form.initial_mileage, 10) : 0;
+    if (form.initial_mileage.trim() && Number.isNaN(mileage)) {
       setError("Le kilométrage initial doit être un nombre.");
       return;
     }
@@ -81,7 +212,9 @@ function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
           brand: form.brand.trim() || null,
           model: form.model.trim() || null,
           registration: form.registration.trim() || null,
-          fuel_type: form.fuel_type || null,
+          powertrain_type: form.powertrain_type,
+          preferred_energy_type_id: form.preferred_energy_type_id,
+          compatible_energy_type_ids: form.compatible_energy_type_ids,
           initial_mileage: mileage,
         };
         saved = await updateVehicle(input);
@@ -91,17 +224,20 @@ function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
           brand: form.brand.trim() || null,
           model: form.model.trim() || null,
           registration: form.registration.trim() || null,
-          fuel_type: form.fuel_type || null,
+          powertrain_type: form.powertrain_type,
+          preferred_energy_type_id: form.preferred_energy_type_id,
+          compatible_energy_type_ids: form.compatible_energy_type_ids,
           initial_mileage: mileage,
         };
         saved = await createVehicle(input);
       }
+
       onSaved(saved);
-    } catch (err) {
+    } catch (currentError) {
       const fallback = isEditing
         ? "Impossible de modifier le véhicule."
         : "Impossible de créer le véhicule.";
-      setError(typeof err === "string" ? err : fallback);
+      setError(typeof currentError === "string" ? currentError : fallback);
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +245,7 @@ function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal__header">
           <h2 className="modal__title">
             {isEditing ? "Modifier le véhicule" : "Nouveau véhicule"}
@@ -119,119 +255,178 @@ function VehicleModal({ vehicle, onClose, onSaved }: VehicleModalProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="modal__body">
-            {error && <div className="error-banner">{error}</div>}
-
-            <div className="form-row">
-              <label className="form-label form-label--required" htmlFor="v-name">
-                Nom
-              </label>
-              <input
-                id="v-name"
-                className="form-input"
-                type="text"
-                value={form.name}
-                onChange={set("name")}
-                placeholder="ex. Ma voiture"
-                autoFocus
-              />
-            </div>
-
-            <div className="form-row--2col">
-              <div>
-                <label className="form-label" htmlFor="v-brand">
-                  Marque
-                </label>
-                <input
-                  id="v-brand"
-                  className="form-input"
-                  type="text"
-                  value={form.brand}
-                  onChange={set("brand")}
-                  placeholder="ex. Peugeot"
-                />
-              </div>
-              <div>
-                <label className="form-label" htmlFor="v-model">
-                  Modèle
-                </label>
-                <input
-                  id="v-model"
-                  className="form-input"
-                  type="text"
-                  value={form.model}
-                  onChange={set("model")}
-                  placeholder="ex. 308"
-                />
+        {energyTypes.length === 0 ? (
+          <>
+            <div className="modal__body">
+              <div className="empty-state empty-state--compact">
+                <p className="empty-state__title">Aucune énergie disponible</p>
+                <p className="empty-state__body">
+                  Ajoutez d&apos;abord des types d&apos;énergie en base pour configurer un véhicule.
+                </p>
               </div>
             </div>
+            <div className="modal__footer">
+              <button type="button" className="btn btn--secondary" onClick={onClose}>
+                Fermer
+              </button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div className="modal__body">
+              {error && <div className="error-banner">{error}</div>}
 
-            <div className="form-row--2col">
-              <div>
-                <label className="form-label" htmlFor="v-registration">
-                  Immatriculation
+              <div className="form-row">
+                <label className="form-label form-label--required" htmlFor="v-name">
+                  Nom
                 </label>
                 <input
-                  id="v-registration"
+                  id="v-name"
                   className="form-input"
                   type="text"
-                  value={form.registration}
-                  onChange={set("registration")}
-                  placeholder="ex. AB-123-CD"
+                  value={form.name}
+                  onChange={setField("name")}
+                  placeholder="ex. Ma voiture"
+                  autoFocus
                 />
               </div>
-              <div>
-                <label className="form-label" htmlFor="v-fuel">
-                  Type de carburant
+
+              <div className="form-row--2col">
+                <div>
+                  <label className="form-label" htmlFor="v-brand">
+                    Marque
+                  </label>
+                  <input
+                    id="v-brand"
+                    className="form-input"
+                    type="text"
+                    value={form.brand}
+                    onChange={setField("brand")}
+                    placeholder="ex. Peugeot"
+                  />
+                </div>
+                <div>
+                  <label className="form-label" htmlFor="v-model">
+                    Modèle
+                  </label>
+                  <input
+                    id="v-model"
+                    className="form-input"
+                    type="text"
+                    value={form.model}
+                    onChange={setField("model")}
+                    placeholder="ex. 308"
+                  />
+                </div>
+              </div>
+
+              <div className="form-row--2col">
+                <div>
+                  <label className="form-label" htmlFor="v-registration">
+                    Immatriculation
+                  </label>
+                  <input
+                    id="v-registration"
+                    className="form-input"
+                    type="text"
+                    value={form.registration}
+                    onChange={setField("registration")}
+                    placeholder="ex. AB-123-CD"
+                  />
+                </div>
+                <div>
+                  <label className="form-label form-label--required" htmlFor="v-powertrain">
+                    Motorisation
+                  </label>
+                  <select
+                    id="v-powertrain"
+                    className="form-select"
+                    value={form.powertrain_type}
+                    onChange={setField("powertrain_type")}
+                  >
+                    <option value="">— Sélectionner —</option>
+                    {POWERTRAIN_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <label className="form-label form-label--required">
+                  Énergies compatibles
+                </label>
+                <div className="form-checkbox-grid">
+                  {groupedEnergyTypes.map((group) => (
+                    <div key={group.category} className="form-checkbox-group">
+                      <div className="form-checkbox-group__title">{group.label}</div>
+                      {group.options.map((energyType) => (
+                        <label key={energyType.id} className="form-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={form.compatible_energy_type_ids.includes(energyType.id)}
+                            onChange={toggleCompatibleEnergyType(energyType.id)}
+                          />
+                          <span>{energyType.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="form-row">
+                <label className="form-label form-label--required" htmlFor="v-preferred-energy">
+                  Énergie préférée
                 </label>
                 <select
-                  id="v-fuel"
+                  id="v-preferred-energy"
                   className="form-select"
-                  value={form.fuel_type}
-                  onChange={set("fuel_type")}
+                  value={form.preferred_energy_type_id}
+                  onChange={setField("preferred_energy_type_id")}
+                  disabled={preferredEnergyOptions.length === 0}
                 >
                   <option value="">— Sélectionner —</option>
-                  {FUEL_TYPES.map((ft) => (
-                    <option key={ft} value={ft}>
-                      {ft}
+                  {preferredEnergyOptions.map((energyType) => (
+                    <option key={energyType.id} value={energyType.id}>
+                      {energyType.label}
                     </option>
                   ))}
                 </select>
               </div>
+
+              <div className="form-row">
+                <label className="form-label" htmlFor="v-mileage">
+                  Kilométrage initial (km)
+                </label>
+                <input
+                  id="v-mileage"
+                  className="form-input"
+                  type="number"
+                  min="0"
+                  value={form.initial_mileage}
+                  onChange={setField("initial_mileage")}
+                  placeholder="0"
+                />
+              </div>
             </div>
 
-            <div className="form-row">
-              <label className="form-label" htmlFor="v-mileage">
-                Kilométrage initial (km)
-              </label>
-              <input
-                id="v-mileage"
-                className="form-input"
-                type="number"
-                min="0"
-                value={form.initial_mileage}
-                onChange={set("initial_mileage")}
-                placeholder="0"
-              />
+            <div className="modal__footer">
+              <button type="button" className="btn btn--secondary" onClick={onClose}>
+                Annuler
+              </button>
+              <button type="submit" className="btn btn--primary" disabled={submitting}>
+                {submitting ? "Enregistrement…" : isEditing ? "Enregistrer" : "Ajouter"}
+              </button>
             </div>
-          </div>
-
-          <div className="modal__footer">
-            <button type="button" className="btn btn--secondary" onClick={onClose}>
-              Annuler
-            </button>
-            <button type="submit" className="btn btn--primary" disabled={submitting}>
-              {submitting ? "Enregistrement…" : isEditing ? "Enregistrer" : "Ajouter"}
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
       </div>
     </div>
   );
 }
-
-// ─── Archive confirmation modal ───────────────────────────────────────────────
 
 interface ArchiveConfirmModalProps {
   vehicle: Vehicle;
@@ -249,15 +444,15 @@ function ArchiveConfirmModal({ vehicle, onCancel, onConfirmed }: ArchiveConfirmM
     try {
       await archiveVehicle(vehicle.id);
       onConfirmed(vehicle.id);
-    } catch (err) {
-      setError(typeof err === "string" ? err : "Impossible d'archiver le véhicule.");
+    } catch (currentError) {
+      setError(typeof currentError === "string" ? currentError : "Impossible d'archiver le véhicule.");
       setSubmitting(false);
     }
   }
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal__header">
           <h2 className="modal__title">Archiver le véhicule</h2>
           <button className="modal__close" onClick={onCancel} aria-label="Fermer">
@@ -289,27 +484,29 @@ function ArchiveConfirmModal({ vehicle, onCancel, onConfirmed }: ArchiveConfirmM
   );
 }
 
-// ─── Vehicle list ─────────────────────────────────────────────────────────────
-
 interface VehicleRowProps {
   vehicle: Vehicle;
+  energyTypeLabels: Map<string, string>;
   onEdit: (vehicle: Vehicle) => void;
   onArchive: (vehicle: Vehicle) => void;
   onUnarchive: (id: string) => void;
 }
 
-function VehicleRow({ vehicle, onEdit, onArchive, onUnarchive }: VehicleRowProps) {
+function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive }: VehicleRowProps) {
   const subtitle = [vehicle.brand, vehicle.model].filter(Boolean).join(" ");
   const [unarchiving, setUnarchiving] = useState(false);
+  const compatibleEnergyLabels = formatEnergyTypeLabels(vehicle.compatible_energy_type_ids, energyTypeLabels);
+  const preferredEnergyLabel = vehicle.preferred_energy_type_id
+    ? energyTypeLabels.get(vehicle.preferred_energy_type_id) ?? vehicle.preferred_energy_type_id
+    : null;
 
   async function handleUnarchive() {
     setUnarchiving(true);
     try {
       await unarchiveVehicle(vehicle.id);
       onUnarchive(vehicle.id);
-    } catch (err) {
-      // Surface the error inline — keep the row visible
-      console.error(err);
+    } catch (currentError) {
+      console.error(currentError);
     } finally {
       setUnarchiving(false);
     }
@@ -323,13 +520,23 @@ function VehicleRow({ vehicle, onEdit, onArchive, onUnarchive }: VehicleRowProps
       </td>
       <td>{vehicle.registration ?? <span className="data-table__muted">—</span>}</td>
       <td>
-        {vehicle.fuel_type ? (
-          <span className="badge badge--neutral">{vehicle.fuel_type}</span>
+        {vehicle.powertrain_type ? (
+          <>
+            <span className="badge badge--neutral">
+              {formatPowertrainLabel(vehicle.powertrain_type)}
+            </span>
+            {preferredEnergyLabel && (
+              <div className="data-table__muted">Préférée: {preferredEnergyLabel}</div>
+            )}
+            {compatibleEnergyLabels && (
+              <div className="data-table__muted">Compatibles: {compatibleEnergyLabels}</div>
+            )}
+          </>
         ) : (
           <span className="data-table__muted">—</span>
         )}
       </td>
-      <td>{vehicle.initial_mileage.toLocaleString()} km</td>
+      <td>{vehicle.initial_mileage.toLocaleString("fr-FR")} km</td>
       <td>
         {vehicle.is_archived ? (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -357,10 +564,9 @@ function VehicleRow({ vehicle, onEdit, onArchive, onUnarchive }: VehicleRowProps
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function VehiclesPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [energyTypes, setEnergyTypes] = useState<EnergyType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -369,14 +575,22 @@ export default function VehiclesPage() {
   const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    listVehicles(showArchived)
-      .then((data) => {
-        setVehicles(data);
+    Promise.all([listVehicles(showArchived), listEnergyTypes()])
+      .then(([vehicleData, energyTypeData]) => {
+        setVehicles(vehicleData);
+        setEnergyTypes(energyTypeData);
         setError(null);
       })
-      .catch((err) => setError(typeof err === "string" ? err : "Impossible de charger les véhicules."))
+      .catch((currentError) =>
+        setError(typeof currentError === "string" ? currentError : "Impossible de charger les véhicules."),
+      )
       .finally(() => setLoading(false));
   }, [showArchived]);
+
+  const energyTypeLabels = useMemo(
+    () => new Map(energyTypes.map((energyType) => [energyType.id, energyType.label])),
+    [energyTypes],
+  );
 
   function closeModal() {
     setShowCreate(false);
@@ -385,9 +599,9 @@ export default function VehiclesPage() {
 
   function handleSaved(vehicle: Vehicle) {
     if (editingVehicle) {
-      setVehicles((prev) => prev.map((v) => (v.id === vehicle.id ? vehicle : v)));
+      setVehicles((previous) => previous.map((current) => (current.id === vehicle.id ? vehicle : current)));
     } else {
-      setVehicles((prev) => [vehicle, ...prev]);
+      setVehicles((previous) => [vehicle, ...previous]);
     }
     closeModal();
   }
@@ -395,18 +609,18 @@ export default function VehiclesPage() {
   function handleArchived(id: string) {
     setArchivingVehicle(null);
     if (showArchived) {
-      // Keep the row but flip its archived flag in place
-      setVehicles((prev) => prev.map((v) => (v.id === id ? { ...v, is_archived: true } : v)));
+      setVehicles((previous) => previous.map((vehicle) => (
+        vehicle.id === id ? { ...vehicle, is_archived: true } : vehicle
+      )));
     } else {
-      // Remove it from the active list
-      setVehicles((prev) => prev.filter((v) => v.id !== id));
+      setVehicles((previous) => previous.filter((vehicle) => vehicle.id !== id));
     }
   }
 
   function handleUnarchived(id: string) {
-    // The row is always visible when this is called (showArchived is true).
-    // Flip the flag in place so the row switches back to active state.
-    setVehicles((prev) => prev.map((v) => (v.id === id ? { ...v, is_archived: false } : v)));
+    setVehicles((previous) => previous.map((vehicle) => (
+      vehicle.id === id ? { ...vehicle, is_archived: false } : vehicle
+    )));
   }
 
   const isEmpty = !loading && vehicles.length === 0;
@@ -423,7 +637,7 @@ export default function VehiclesPage() {
             <input
               type="checkbox"
               checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
+              onChange={(event) => setShowArchived(event.target.checked)}
             />
             Afficher les véhicules archivés
           </label>
@@ -439,7 +653,7 @@ export default function VehiclesPage() {
         <div className="empty-state">
           <p className="empty-state__title">Aucun véhicule</p>
           <p className="empty-state__body">
-            Ajoutez votre premier véhicule pour commencer à suivre le carburant, l'entretien et le kilométrage.
+            Ajoutez votre premier véhicule pour commencer à suivre le carburant, l&apos;entretien et le kilométrage.
           </p>
           <button className="btn btn--primary" onClick={() => setShowCreate(true)}>
             + Ajouter un véhicule
@@ -451,16 +665,17 @@ export default function VehiclesPage() {
             <tr>
               <th>Véhicule</th>
               <th>Immatriculation</th>
-              <th>Carburant</th>
+              <th>Motorisation</th>
               <th>Kilométrage initial</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {vehicles.map((v) => (
+            {vehicles.map((vehicle) => (
               <VehicleRow
-                key={v.id}
-                vehicle={v}
+                key={vehicle.id}
+                vehicle={vehicle}
+                energyTypeLabels={energyTypeLabels}
                 onEdit={setEditingVehicle}
                 onArchive={setArchivingVehicle}
                 onUnarchive={handleUnarchived}
@@ -473,6 +688,7 @@ export default function VehiclesPage() {
       {(showCreate || editingVehicle !== null) && (
         <VehicleModal
           vehicle={editingVehicle ?? undefined}
+          energyTypes={energyTypes}
           onClose={closeModal}
           onSaved={handleSaved}
         />
