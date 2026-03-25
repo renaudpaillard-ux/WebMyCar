@@ -13,8 +13,8 @@ pub struct CurrentDatabasePath(pub Mutex<PathBuf>);
 pub fn open_and_migrate(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
 
-    // Enable WAL mode for better concurrent read performance.
-    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    // Keep a mono-file SQLite layout for `.wmc` documents.
+    conn.execute_batch("PRAGMA journal_mode=DELETE;")?;
 
     run_migrations(&conn)?;
     Ok(conn)
@@ -162,4 +162,27 @@ fn column_exists(conn: &Connection, table_name: &str, column_name: &str) -> Resu
     }
 
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opens_database_in_delete_journal_mode() {
+        let temp_dir = std::env::temp_dir().join(format!("webmycar-db-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let db_path = temp_dir.join("journal_mode_test.wmc");
+
+        let conn = open_and_migrate(&db_path).expect("open and migrate");
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
+            .expect("read journal mode");
+
+        assert_eq!(journal_mode.to_lowercase(), "delete");
+
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

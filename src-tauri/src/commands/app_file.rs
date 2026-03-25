@@ -50,7 +50,7 @@ pub fn create_database_at_path(
     }
 
     ensure_parent_directory(&target_path)?;
-    remove_database_files(&target_path)?;
+    remove_database_file_if_exists(&target_path)?;
 
     let new_connection = db::open_and_migrate(&target_path)?;
     replace_database_connection(&db_state, &current_path, new_connection, &target_path)?;
@@ -77,7 +77,6 @@ pub fn open_database_at_path(
         return Ok(database_info_from_path(&target_path));
     }
 
-    checkpoint_current_database(&db_state)?;
     let new_connection = db::open_and_migrate(&target_path)?;
     replace_database_connection(&db_state, &current_path, new_connection, &target_path)?;
     finalize_database_switch(&app, &target_path)?;
@@ -102,9 +101,7 @@ pub fn save_database_as_path(
     }
 
     ensure_parent_directory(&target_path)?;
-    checkpoint_current_database(&db_state)?;
-    remove_database_files(&target_path)?;
-    fs::copy(&source_path, &target_path)?;
+    export_current_database_to_path(&db_state, &target_path)?;
 
     let new_connection = db::open_and_migrate(&target_path)?;
     replace_database_connection(&db_state, &current_path, new_connection, &target_path)?;
@@ -128,7 +125,16 @@ pub fn reveal_current_database_in_folder(
         .map_err(|error| AppError::msg(format!("Impossible d'afficher le fichier dans le dossier : {}", error)))
 }
 
-pub fn default_database_path(app: &AppHandle) -> Result<PathBuf> {
+pub fn startup_database_path(app: &AppHandle) -> Result<PathBuf> {
+    let recent_paths = load_recent_database_paths(app)?;
+    if let Some(last_used_path) = recent_paths.first() {
+        return Ok(last_used_path.clone());
+    }
+
+    default_database_path(app)
+}
+
+fn default_database_path(app: &AppHandle) -> Result<PathBuf> {
     let app_data_dir = app.path().app_data_dir()?;
     fs::create_dir_all(&app_data_dir)?;
 
@@ -237,13 +243,15 @@ fn replace_database_connection(
     Ok(())
 }
 
-fn checkpoint_current_database(db_state: &State<DbState>) -> Result<()> {
+fn export_current_database_to_path(db_state: &State<DbState>, target_path: &Path) -> Result<()> {
     let connection = db_state
         .0
         .lock()
         .map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
 
-    connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    connection.execute_batch("PRAGMA journal_mode=DELETE;")?;
+    remove_database_file_if_exists(target_path)?;
+    connection.execute("VACUUM INTO ?1", [target_path.to_string_lossy().to_string()])?;
     Ok(())
 }
 
@@ -274,15 +282,9 @@ fn ensure_parent_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn remove_database_files(path: &Path) -> Result<()> {
-    for current in [
-        path.to_path_buf(),
-        PathBuf::from(format!("{}-wal", path.display())),
-        PathBuf::from(format!("{}-shm", path.display())),
-    ] {
-        if current.exists() {
-            fs::remove_file(current)?;
-        }
+fn remove_database_file_if_exists(path: &Path) -> Result<()> {
+    if path.exists() {
+        fs::remove_file(path)?;
     }
 
     Ok(())
@@ -318,7 +320,25 @@ fn build_file_menu(
         .item(&MenuItem::with_id(app, MENU_FILE_QUIT, "Quitter", true, Some("CmdOrCtrl+Q"))?)
         .build()?;
 
-    MenuBuilder::new(app).item(&file_menu).build().map_err(Into::into)
+    let mut menu = MenuBuilder::new(app);
+
+    if cfg!(target_os = "macos") {
+        let app_menu = build_application_submenu(app)?;
+        menu = menu.item(&app_menu);
+    }
+
+    menu.item(&file_menu).build().map_err(Into::into)
+}
+
+fn build_application_submenu(app: &AppHandle) -> Result<tauri::menu::Submenu<tauri::Wry>> {
+    SubmenuBuilder::new(app, "WebMyCar")
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .build()
+        .map_err(Into::into)
 }
 
 fn build_recent_submenu(
@@ -391,14 +411,16 @@ fn load_recent_database_paths(app: &AppHandle) -> Result<Vec<PathBuf>> {
     }
 
     let content = fs::read_to_string(recents_path)?;
-    let recent_paths = serde_json::from_str::<Vec<String>>(&content).unwrap_or_default();
-
-    Ok(recent_paths
+    let stored_recent_paths = serde_json::from_str::<Vec<String>>(&content).unwrap_or_default();
+    let recent_paths = stored_recent_paths
         .into_iter()
         .map(PathBuf::from)
         .filter(|path| path.exists())
         .take(MAX_RECENT_DATABASES)
-        .collect())
+        .collect::<Vec<_>>();
+
+    persist_recent_database_paths(app, &recent_paths)?;
+    Ok(recent_paths)
 }
 
 fn push_recent_database_path(app: &AppHandle, path: &Path) -> Result<()> {
@@ -408,6 +430,11 @@ fn push_recent_database_path(app: &AppHandle, path: &Path) -> Result<()> {
     recent_paths.insert(0, canonical);
     recent_paths.truncate(MAX_RECENT_DATABASES);
 
+    persist_recent_database_paths(app, &recent_paths)?;
+    Ok(())
+}
+
+fn persist_recent_database_paths(app: &AppHandle, recent_paths: &[PathBuf]) -> Result<()> {
     let serialized = serde_json::to_string_pretty(
         &recent_paths
             .iter()

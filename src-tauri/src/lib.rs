@@ -15,7 +15,7 @@ pub fn run() {
             commands::app_file::handle_menu_event(app, event.id().as_ref());
         })
         .setup(|app| {
-            let db_path = commands::app_file::default_database_path(&app.handle())?;
+            let db_path = commands::app_file::startup_database_path(&app.handle())?;
             let conn = db::open_and_migrate(&db_path)?;
             app.manage(db::DbState(Mutex::new(conn)));
             app.manage(db::CurrentDatabasePath(Mutex::new(db_path.clone())));
