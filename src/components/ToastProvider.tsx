@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface ToastItem {
   id: number;
@@ -35,19 +36,22 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="notice-stack" aria-live="polite" aria-atomic="true">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={`notice notice--${toast.variant}`}
-            role="status"
-            onClick={() => dismissToast(toast.id)}
-          >
-            <span className="notice__dot" aria-hidden="true" />
-            <span>{toast.message}</span>
-          </div>
-        ))}
-      </div>
+      {typeof document !== "undefined" && createPortal(
+        <div className="notice-stack" aria-live="polite" aria-atomic="true">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`notice notice--${toast.variant}`}
+              role="status"
+              onClick={() => dismissToast(toast.id)}
+            >
+              <span className="notice__dot" aria-hidden="true" />
+              <span>{toast.message}</span>
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
     </ToastContext.Provider>
   );
 }

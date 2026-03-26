@@ -404,8 +404,14 @@ button {
   overflow: hidden;
 }
 
+.table-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .data-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -643,13 +649,16 @@ button {
 .modal-overlay {
   position: fixed;
   inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(38, 33, 26, 0.34);
   backdrop-filter: blur(14px);
   z-index: 100;
 }
 
 .modal {
-  position: fixed;
+  position: relative;
   width: 520px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 48px);
@@ -664,6 +673,11 @@ button {
 
 .modal--wide {
   width: min(1240px, calc(100vw - 32px));
+}
+
+.modal--dragged {
+  position: fixed;
+  margin: 0;
 }
 
 .modal__header {
@@ -1009,7 +1023,7 @@ button {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 200;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   align-items: flex-end;

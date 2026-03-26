@@ -1335,34 +1335,36 @@ export default function FuelPage() {
               </div>
             </div>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th className="cell--number">Km total (km)</th>
-                <th className="cell--number">Parcouru (km)</th>
-                <th className="cell--number">Quantité (L)</th>
-                <th className="cell--number">Montant (€)</th>
-                <th className="cell--number">Prix/L (€/L)</th>
-                <th className="cell--number">Conso (L/100)</th>
-                <th>Énergie</th>
-                <th>Lieu</th>
-                <th>Plein</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedEntries.map((entry) => (
-                <FuelRow
-                  key={entry.id}
-                  entry={entry}
-                  canEdit={activeVehicleIds.has(entry.vehicle_id)}
-                  onEdit={setEditingEntry}
-                  onDelete={setDeletingEntry}
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th className="cell--number">Km total (km)</th>
+                  <th className="cell--number">Parcouru (km)</th>
+                  <th className="cell--number">Quantité (L)</th>
+                  <th className="cell--number">Montant (€)</th>
+                  <th className="cell--number">Prix/L (€/L)</th>
+                  <th className="cell--number">Conso (L/100)</th>
+                  <th>Énergie</th>
+                  <th>Lieu</th>
+                  <th>Plein</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedEntries.map((entry) => (
+                  <FuelRow
+                    key={entry.id}
+                    entry={entry}
+                    canEdit={activeVehicleIds.has(entry.vehicle_id)}
+                    onEdit={setEditingEntry}
+                    onDelete={setDeletingEntry}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

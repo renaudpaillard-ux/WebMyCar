@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface ModalPosition {
   left: number;
@@ -20,20 +21,7 @@ export default function ModalFrame({ title, onClose, children, className }: Moda
   const modalRef = useRef<HTMLDivElement | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const dragSizeRef = useRef<{ width: number; height: number } | null>(null);
-  const [position, setPosition] = useState<ModalPosition>({ left: 0, top: 0 });
-
-  useLayoutEffect(() => {
-    const modal = modalRef.current;
-    if (!modal) {
-      return;
-    }
-
-    const rect = modal.getBoundingClientRect();
-    setPosition({
-      left: Math.max((window.innerWidth - rect.width) / 2, 12),
-      top: Math.max((window.innerHeight - rect.height) / 2, 12),
-    });
-  }, []);
+  const [position, setPosition] = useState<ModalPosition | null>(null);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -66,6 +54,10 @@ export default function ModalFrame({ title, onClose, children, className }: Moda
       width: rect.width,
       height: rect.height,
     };
+    setPosition({
+      left: rect.left,
+      top: rect.top,
+    });
 
     event.currentTarget.setPointerCapture(event.pointerId);
     event.preventDefault();
@@ -108,13 +100,13 @@ export default function ModalFrame({ title, onClose, children, className }: Moda
     dragSizeRef.current = null;
   }
 
-  return (
+  const modalContent = (
     <div className="modal-overlay" onClick={onClose}>
       <div
         ref={modalRef}
-        className={["modal", className].filter(Boolean).join(" ")}
+        className={["modal", className, position ? "modal--dragged" : ""].filter(Boolean).join(" ")}
         onClick={(event) => event.stopPropagation()}
-        style={{ left: position.left, top: position.top }}
+        style={position ? { left: position.left, top: position.top } : undefined}
       >
         <div
           className="modal__header"
@@ -132,4 +124,10 @@ export default function ModalFrame({ title, onClose, children, className }: Moda
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return modalContent;
+  }
+
+  return createPortal(modalContent, document.body);
 }

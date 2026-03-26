@@ -690,29 +690,31 @@ export default function VehiclesPage() {
               </div>
             </div>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Véhicule</th>
-                <th>Immatriculation</th>
-                <th>Motorisation</th>
-                <th>Kilométrage initial</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {vehicles.map((vehicle) => (
-                <VehicleRow
-                  key={vehicle.id}
-                  vehicle={vehicle}
-                  energyTypeLabels={energyTypeLabels}
-                  onEdit={setEditingVehicle}
-                  onArchive={setArchivingVehicle}
-                  onUnarchive={handleUnarchived}
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Véhicule</th>
+                  <th>Immatriculation</th>
+                  <th>Motorisation</th>
+                  <th>Kilométrage initial</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {vehicles.map((vehicle) => (
+                  <VehicleRow
+                    key={vehicle.id}
+                    vehicle={vehicle}
+                    energyTypeLabels={energyTypeLabels}
+                    onEdit={setEditingVehicle}
+                    onArchive={setArchivingVehicle}
+                    onUnarchive={handleUnarchived}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 
