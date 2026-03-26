@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import ModalFrame from "../components/ModalFrame";
+import { useToast } from "../components/ToastProvider";
 import { createFuelEntry, deleteFuelEntry, importFuelCsv, listEnergyTypes, listFuelEntries, previewFuelCsv, updateFuelEntry } from "../features/fuel/api";
 import type {
   CreateFuelEntryInput,
@@ -1071,6 +1072,7 @@ export default function FuelPage() {
   const [importing, setImporting] = useState(false);
   const [pendingImport, setPendingImport] = useState<PendingFuelImport | null>(null);
   const [importResult, setImportResult] = useState<ImportFuelCsvResult | null>(null);
+  const { showToast } = useToast();
 
   async function loadFuelPageData() {
     return Promise.all([listFuelEntries(), listVehicles(false), listEnergyTypes()])
@@ -1138,8 +1140,10 @@ export default function FuelPage() {
   function handleSaved(entry: FuelEntry) {
     if (editingEntry) {
       setEntries((previous) => previous.map((current) => (current.id === entry.id ? entry : current)));
+      showToast("Entrée carburant modifiée");
     } else {
       setEntries((previous) => [entry, ...previous]);
+      showToast("Entrée carburant ajoutée");
     }
     closeModal();
   }
@@ -1147,6 +1151,7 @@ export default function FuelPage() {
   function handleDeleted(id: string) {
     setDeletingEntry(null);
     setEntries((previous) => previous.filter((current) => current.id !== id));
+    showToast("Entrée carburant supprimée");
   }
 
   async function handleImportFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -1198,6 +1203,7 @@ export default function FuelPage() {
       await loadFuelPageData();
       setPendingImport(null);
       setImportResult(result);
+      showToast("Import CSV terminé", "info");
     } catch (currentError) {
       setError(typeof currentError === "string" ? currentError : "Impossible d'importer le fichier CSV.");
     } finally {

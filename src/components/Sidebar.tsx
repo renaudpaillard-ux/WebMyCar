@@ -17,9 +17,7 @@ const mainNav: NavItem[] = [
   { to: "/documents", label: "Documents", icon: "◻", caption: "Pièces et justificatifs" },
 ];
 
-const bottomNav: NavItem[] = [
-  { to: "/settings", label: "Paramètres", icon: "⊙", caption: "Préférences de l'application" },
-];
+const bottomNav: NavItem[] = [];
 
 export default function Sidebar() {
   return (
@@ -51,24 +49,26 @@ export default function Sidebar() {
         ))}
       </div>
 
-      <div className="sidebar__footer">
-        <div className="sidebar__section-label">Application</div>
-        {bottomNav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) => "sidebar__link" + (isActive ? " active" : "")}
-          >
-            <span className="sidebar__link-icon" aria-hidden="true">
-              {item.icon}
-            </span>
-            <span className="sidebar__link-text">
-              <span className="sidebar__link-label">{item.label}</span>
-              <span className="sidebar__link-caption">{item.caption}</span>
-            </span>
-          </NavLink>
-        ))}
-      </div>
+      {bottomNav.length > 0 && (
+        <div className="sidebar__footer">
+          <div className="sidebar__section-label">Application</div>
+          {bottomNav.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => "sidebar__link" + (isActive ? " active" : "")}
+            >
+              <span className="sidebar__link-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              <span className="sidebar__link-text">
+                <span className="sidebar__link-label">{item.label}</span>
+                <span className="sidebar__link-caption">{item.caption}</span>
+              </span>
+            </NavLink>
+          ))}
+        </div>
+      )}
     </nav>
   );
 }

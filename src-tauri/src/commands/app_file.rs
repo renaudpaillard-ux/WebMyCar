@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
-use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
+use tauri::menu::{AboutMetadata, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -17,6 +17,7 @@ const MENU_FILE_SAVE_AS: &str = "file_save_as";
 const MENU_FILE_QUIT: &str = "file_quit";
 const MENU_FILE_RECENT_EMPTY: &str = "file_recent_empty";
 const MENU_FILE_RECENT_PREFIX: &str = "file_recent_";
+const MENU_APP_PREFERENCES: &str = "app_preferences";
 const MENU_ACTION_EVENT: &str = "menu-action";
 const DATABASE_CHANGED_EVENT: &str = "database-changed";
 const RECENT_DATABASES_FILE: &str = "recent_databases.json";
@@ -167,6 +168,8 @@ pub fn handle_menu_event(app: &AppHandle, menu_id: &str) {
         emit_menu_action(app, "save_as", None)
     } else if menu_id == MENU_FILE_SHOW_IN_FOLDER {
         emit_menu_action(app, "show_in_folder", None)
+    } else if menu_id == MENU_APP_PREFERENCES {
+        emit_menu_action(app, "preferences", None)
     } else if menu_id == MENU_FILE_QUIT {
         app.exit(0);
         return;
@@ -296,7 +299,8 @@ fn build_file_menu(
     recent_paths: &[PathBuf],
 ) -> Result<tauri::menu::Menu<tauri::Wry>> {
     let recent_submenu = build_recent_submenu(app, recent_paths)?;
-    let file_menu = SubmenuBuilder::new(app, "Fichier")
+    let edit_menu = build_edit_submenu(app)?;
+    let mut file_menu = SubmenuBuilder::new(app, "Fichier")
         .item(&MenuItem::with_id(app, MENU_FILE_NEW, "Nouveau", true, Some("CmdOrCtrl+N"))?)
         .item(&MenuItem::with_id(app, MENU_FILE_OPEN, "Ouvrir…", true, Some("CmdOrCtrl+O"))?)
         .item(&recent_submenu)
@@ -315,10 +319,15 @@ fn build_file_menu(
             "Enregistrer sous…",
             true,
             Some("CmdOrCtrl+Shift+S"),
-        )?)
-        .separator()
-        .item(&MenuItem::with_id(app, MENU_FILE_QUIT, "Quitter", true, Some("CmdOrCtrl+Q"))?)
-        .build()?;
+        )?);
+
+    if !cfg!(target_os = "macos") {
+        file_menu = file_menu
+            .separator()
+            .item(&MenuItem::with_id(app, MENU_FILE_QUIT, "Quitter", true, Some("CmdOrCtrl+Q"))?);
+    }
+
+    let file_menu = file_menu.build()?;
 
     let mut menu = MenuBuilder::new(app);
 
@@ -327,16 +336,54 @@ fn build_file_menu(
         menu = menu.item(&app_menu);
     }
 
-    menu.item(&file_menu).build().map_err(Into::into)
+    menu.item(&file_menu)
+        .item(&edit_menu)
+        .build()
+        .map_err(Into::into)
 }
 
 fn build_application_submenu(app: &AppHandle) -> Result<tauri::menu::Submenu<tauri::Wry>> {
     SubmenuBuilder::new(app, "WebMyCar")
-        .services()
+        .item(&PredefinedMenuItem::about(
+            app,
+            Some("À propos de WebMyCar"),
+            Some(AboutMetadata {
+                name: Some("WebMyCar".to_string()),
+                ..Default::default()
+            }),
+        )?)
+        .item(&MenuItem::with_id(
+            app,
+            MENU_APP_PREFERENCES,
+            "Préférences…",
+            true,
+            Some("CmdOrCtrl+,"),
+        )?)
         .separator()
-        .hide()
-        .hide_others()
-        .show_all()
+        .item(&PredefinedMenuItem::services(app, Some("Services"))?)
+        .separator()
+        .item(&PredefinedMenuItem::hide(app, Some("Masquer WebMyCar"))?)
+        .item(&PredefinedMenuItem::hide_others(
+            app,
+            Some("Masquer les autres"),
+        )?)
+        .item(&PredefinedMenuItem::show_all(app, Some("Tout afficher"))?)
+        .separator()
+        .item(&PredefinedMenuItem::quit(app, Some("Quitter WebMyCar"))?)
+        .build()
+        .map_err(Into::into)
+}
+
+fn build_edit_submenu(app: &AppHandle) -> Result<tauri::menu::Submenu<tauri::Wry>> {
+    SubmenuBuilder::new(app, "Édition")
+        .item(&PredefinedMenuItem::undo(app, Some("Annuler"))?)
+        .item(&PredefinedMenuItem::redo(app, Some("Rétablir"))?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(app, Some("Couper"))?)
+        .item(&PredefinedMenuItem::copy(app, Some("Copier"))?)
+        .item(&PredefinedMenuItem::paste(app, Some("Coller"))?)
+        .separator()
+        .item(&PredefinedMenuItem::select_all(app, Some("Tout sélectionner"))?)
         .build()
         .map_err(Into::into)
 }

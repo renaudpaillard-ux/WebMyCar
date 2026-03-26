@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ModalFrame from "../components/ModalFrame";
+import { useToast } from "../components/ToastProvider";
 import { listEnergyTypes } from "../features/fuel/api";
 import type { EnergyType } from "../features/fuel/types";
 import { archiveVehicle, createVehicle, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
@@ -112,6 +113,20 @@ function formatPowertrainLabel(value: string | null): string | null {
   }
 
   return POWERTRAIN_LABELS.get(value) ?? value;
+}
+
+function getPowertrainBadgeClass(value: string | null): string {
+  switch (value) {
+    case "hybrid":
+    case "plug_in_hybrid":
+      return "badge badge--powertrain badge--powertrain-hybrid";
+    case "electric":
+      return "badge badge--powertrain badge--powertrain-electric";
+    case "diesel":
+      return "badge badge--powertrain badge--powertrain-diesel";
+    default:
+      return "badge badge--powertrain";
+  }
 }
 
 function formatEnergyTypeLabels(
@@ -519,7 +534,7 @@ function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive 
       <td>
         {vehicle.powertrain_type ? (
           <>
-            <span className="badge badge--neutral">
+            <span className={getPowertrainBadgeClass(vehicle.powertrain_type)}>
               {formatPowertrainLabel(vehicle.powertrain_type)}
             </span>
             {preferredEnergyLabel && (
@@ -570,6 +585,7 @@ export default function VehiclesPage() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [archivingVehicle, setArchivingVehicle] = useState<Vehicle | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const { showToast } = useToast();
 
   useEffect(() => {
     Promise.all([listVehicles(showArchived), listEnergyTypes()])
@@ -597,8 +613,10 @@ export default function VehiclesPage() {
   function handleSaved(vehicle: Vehicle) {
     if (editingVehicle) {
       setVehicles((previous) => previous.map((current) => (current.id === vehicle.id ? vehicle : current)));
+      showToast("Véhicule modifié");
     } else {
       setVehicles((previous) => [vehicle, ...previous]);
+      showToast("Véhicule ajouté");
     }
     closeModal();
   }
@@ -612,12 +630,14 @@ export default function VehiclesPage() {
     } else {
       setVehicles((previous) => previous.filter((vehicle) => vehicle.id !== id));
     }
+    showToast("Véhicule archivé");
   }
 
   function handleUnarchived(id: string) {
     setVehicles((previous) => previous.map((vehicle) => (
       vehicle.id === id ? { ...vehicle, is_archived: false } : vehicle
     )));
+    showToast("Véhicule réactivé");
   }
 
   const isEmpty = !loading && vehicles.length === 0;

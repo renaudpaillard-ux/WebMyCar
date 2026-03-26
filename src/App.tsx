@@ -1,8 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import AppShell from "./app/AppShell";
+import { ToastProvider } from "./components/ToastProvider";
 import {
   createDatabaseAtPath,
   getCurrentDatabaseInfo,
@@ -22,9 +23,25 @@ import VehiclesPage from "./pages/VehiclesPage";
 
 const DATABASE_FILE_FILTERS = [{ name: "Base WebMyCar", extensions: ["wmc"] }];
 
+function MenuNavigationBridge({ targetPath, onHandled }: { targetPath: string | null; onHandled: () => void }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!targetPath) {
+      return;
+    }
+
+    navigate(targetPath);
+    onHandled();
+  }, [navigate, onHandled, targetPath]);
+
+  return null;
+}
+
 export default function App() {
   const [databaseInfo, setDatabaseInfo] = useState<CurrentDatabaseInfo | null>(null);
   const [databaseRevision, setDatabaseRevision] = useState(0);
+  const [menuTargetPath, setMenuTargetPath] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -75,6 +92,11 @@ export default function App() {
 
         if (payload.action === "show_in_folder") {
           await revealCurrentDatabaseInFolder();
+          return;
+        }
+
+        if (payload.action === "preferences") {
+          setMenuTargetPath("/settings");
         }
       } catch (error) {
         window.alert(typeof error === "string" ? error : "Impossible d'exécuter l'action Fichier.");
@@ -113,19 +135,25 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<AppShell key={databaseRevision} />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="vehicles" element={<VehiclesPage />} />
-          <Route path="fuel" element={<FuelPage />} />
-          <Route path="maintenance" element={<MaintenancePage />} />
-          <Route path="odometer" element={<OdometerPage />} />
-          <Route path="reminders" element={<RemindersPage />} />
-          <Route path="documents" element={<DocumentsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
-      </Routes>
+      <ToastProvider>
+        <MenuNavigationBridge
+          targetPath={menuTargetPath}
+          onHandled={() => setMenuTargetPath(null)}
+        />
+        <Routes>
+          <Route path="/" element={<AppShell key={databaseRevision} />}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="vehicles" element={<VehiclesPage />} />
+            <Route path="fuel" element={<FuelPage />} />
+            <Route path="maintenance" element={<MaintenancePage />} />
+            <Route path="odometer" element={<OdometerPage />} />
+            <Route path="reminders" element={<RemindersPage />} />
+            <Route path="documents" element={<DocumentsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+        </Routes>
+      </ToastProvider>
     </BrowserRouter>
   );
 }
