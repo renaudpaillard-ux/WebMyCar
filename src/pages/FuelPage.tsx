@@ -1010,7 +1010,7 @@ function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
         )}
       </td>
       <td>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div className="table-actions">
           <button className="btn btn--secondary btn--sm" onClick={() => onEdit(entry)} disabled={!canEdit}>
             Modifier
           </button>
@@ -1206,7 +1206,7 @@ export default function FuelPage() {
   }
 
   return (
-    <>
+    <div className="page-stack">
       <div className="page-header">
         <div>
           <h1 className="page-header__title">Carburant</h1>
@@ -1233,49 +1233,55 @@ export default function FuelPage() {
 
       {hasActiveVehicles && (
         <>
-          <div className="form-row" style={{ maxWidth: 360 }}>
-            <label className="form-label form-label--required" htmlFor="fuel-page-vehicle">
-              Véhicule
-            </label>
-            <select
-              id="fuel-page-vehicle"
-              className="form-select"
-              value={selectedVehicleId}
-              onChange={(event) => setStoredSelectedVehicleId(event.target.value)}
-            >
-              {vehicles.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  {vehicle.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <section className="toolbar">
+            <div className="toolbar__group">
+              <div className="toolbar__field">
+                <label className="form-label form-label--required" htmlFor="fuel-page-vehicle">
+                  Véhicule
+                </label>
+                <select
+                  id="fuel-page-vehicle"
+                  className="form-select"
+                  value={selectedVehicleId}
+                  onChange={(event) => setStoredSelectedVehicleId(event.target.value)}
+                >
+                  {vehicles.map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      {vehicle.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="toolbar__group">
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!selectedVehicleId || importing}
+              >
+                {importing ? "Import en cours…" : "Importer CSV"}
+              </button>
+            </div>
+          </section>
 
-          <div className="form-row">
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!selectedVehicleId || importing}
-            >
-              {importing ? "Import en cours…" : "Importer CSV"}
-            </button>
-          </div>
-
-          <div className="fuel-stats">
+          <section className="stats-grid">
             <div className="fuel-stats__card">
               <div className="fuel-stats__label">Conso moyenne</div>
               <div className="fuel-stats__value">{formatConsumption(stats.averageConsumption)}</div>
+              <div className="fuel-stats__hint">L / 100 km sur l&apos;historique disponible</div>
             </div>
             <div className="fuel-stats__card">
               <div className="fuel-stats__label">Dernière conso</div>
               <div className="fuel-stats__value">{formatConsumption(stats.latestConsumption)}</div>
+              <div className="fuel-stats__hint">Dernier calcul exploitable pour ce véhicule</div>
             </div>
             <div className="fuel-stats__card">
               <div className="fuel-stats__label">Distance suivie</div>
               <div className="fuel-stats__value">{formatInteger(stats.trackedDistance)}</div>
+              <div className="fuel-stats__hint">Kilomètres couverts par les entrées visibles</div>
             </div>
-          </div>
+          </section>
         </>
       )}
 
@@ -1312,34 +1318,46 @@ export default function FuelPage() {
           </button>
         </div>
       ) : loading ? null : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th className="cell--number">Km total (km)</th>
-              <th className="cell--number">Parcouru (km)</th>
-              <th className="cell--number">Quantité (L)</th>
-              <th className="cell--number">Montant (€)</th>
-              <th className="cell--number">Prix/L (€/L)</th>
-              <th className="cell--number">Conso (L/100)</th>
-              <th>Énergie</th>
-              <th>Lieu</th>
-              <th>Plein</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayedEntries.map((entry) => (
-              <FuelRow
-                key={entry.id}
-                entry={entry}
-                canEdit={activeVehicleIds.has(entry.vehicle_id)}
-                onEdit={setEditingEntry}
-                onDelete={setDeletingEntry}
-              />
-            ))}
-          </tbody>
-        </table>
+        <section className="surface-panel table-shell">
+          <div className="surface-panel__body">
+            <div className="section-heading">
+              <div>
+                <h2 className="section-heading__title">Historique carburant</h2>
+                <p className="section-heading__subtitle">
+                  Une ligne par plein ou recharge, triée du plus récent au plus significatif.
+                </p>
+              </div>
+            </div>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th className="cell--number">Km total (km)</th>
+                <th className="cell--number">Parcouru (km)</th>
+                <th className="cell--number">Quantité (L)</th>
+                <th className="cell--number">Montant (€)</th>
+                <th className="cell--number">Prix/L (€/L)</th>
+                <th className="cell--number">Conso (L/100)</th>
+                <th>Énergie</th>
+                <th>Lieu</th>
+                <th>Plein</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedEntries.map((entry) => (
+                <FuelRow
+                  key={entry.id}
+                  entry={entry}
+                  canEdit={activeVehicleIds.has(entry.vehicle_id)}
+                  onEdit={setEditingEntry}
+                  onDelete={setDeletingEntry}
+                />
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       {(showCreate || editingEntry !== null) && (
@@ -1377,6 +1395,6 @@ export default function FuelPage() {
           onClose={() => setImportResult(null)}
         />
       )}
-    </>
+    </div>
   );
 }

@@ -512,7 +512,7 @@ function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive 
       }}
     >
       <td>
-        <div style={{ fontWeight: 500 }}>{vehicle.name}</div>
+        <div className="data-table__title">{vehicle.name}</div>
         {subtitle && <div className="data-table__muted">{subtitle}</div>}
       </td>
       <td>{vehicle.registration ?? <span className="data-table__muted">—</span>}</td>
@@ -536,7 +536,7 @@ function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive 
       <td>{vehicle.initial_mileage.toLocaleString("fr-FR")} km</td>
       <td>
         {vehicle.is_archived ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div className="table-actions">
             <span className="badge badge--neutral">Archivé</span>
             <button
               className="btn btn--secondary btn--sm"
@@ -547,7 +547,7 @@ function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive 
             </button>
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 6 }}>
+          <div className="table-actions">
             <button className="btn btn--secondary btn--sm" onClick={() => onEdit(vehicle)}>
               Modifier
             </button>
@@ -623,14 +623,14 @@ export default function VehiclesPage() {
   const isEmpty = !loading && vehicles.length === 0;
 
   return (
-    <>
+    <div className="page-stack">
       <div className="page-header">
         <div>
           <h1 className="page-header__title">Véhicules</h1>
           <p className="page-header__subtitle">Gérez vos fiches véhicules.</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "var(--color-text-secondary)" }}>
+        <div className="page-actions">
+          <label className="form-switch">
             <input
               type="checkbox"
               checked={showArchived}
@@ -657,29 +657,43 @@ export default function VehiclesPage() {
           </button>
         </div>
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Véhicule</th>
-              <th>Immatriculation</th>
-              <th>Motorisation</th>
-              <th>Kilométrage initial</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {vehicles.map((vehicle) => (
-              <VehicleRow
-                key={vehicle.id}
-                vehicle={vehicle}
-                energyTypeLabels={energyTypeLabels}
-                onEdit={setEditingVehicle}
-                onArchive={setArchivingVehicle}
-                onUnarchive={handleUnarchived}
-              />
-            ))}
-          </tbody>
-        </table>
+        <section className="surface-panel table-shell">
+          <div className="surface-panel__body">
+            <div className="section-heading">
+              <div>
+                <h2 className="section-heading__title">
+                  Liste des véhicules
+                </h2>
+                <p className="section-heading__subtitle">
+                  Double-cliquez sur une ligne active pour modifier rapidement une fiche.
+                </p>
+              </div>
+            </div>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Véhicule</th>
+                <th>Immatriculation</th>
+                <th>Motorisation</th>
+                <th>Kilométrage initial</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {vehicles.map((vehicle) => (
+                <VehicleRow
+                  key={vehicle.id}
+                  vehicle={vehicle}
+                  energyTypeLabels={energyTypeLabels}
+                  onEdit={setEditingVehicle}
+                  onArchive={setArchivingVehicle}
+                  onUnarchive={handleUnarchived}
+                />
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       {(showCreate || editingVehicle !== null) && (
@@ -698,6 +712,6 @@ export default function VehiclesPage() {
           onConfirmed={handleArchived}
         />
       )}
-    </>
+    </div>
   );
 }
