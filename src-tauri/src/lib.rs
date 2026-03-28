@@ -33,6 +33,8 @@ pub fn run() {
             commands::vehicles::update_vehicle,
             commands::vehicles::archive_vehicle,
             commands::vehicles::unarchive_vehicle,
+            commands::vehicles::list_vehicle_specs,
+            commands::vehicles::save_vehicle_specs,
             commands::fuel::list_fuel_entries,
             commands::fuel::list_energy_types,
             commands::fuel::create_fuel_entry,

@@ -63,6 +63,10 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             "008_reseed_energy_types_reference",
             include_str!("migrations/008_reseed_energy_types_reference.sql"),
         ),
+        (
+            "009_create_vehicle_specs",
+            include_str!("migrations/009_create_vehicle_specs.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {

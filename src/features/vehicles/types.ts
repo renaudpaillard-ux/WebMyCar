@@ -44,3 +44,26 @@ export interface UpdateVehicleInput {
   compatible_energy_type_ids: string[];
   initial_mileage: number;
 }
+
+export interface VehicleSpec {
+  id: string;
+  vehicle_id: string;
+  category: string;
+  label: string;
+  value: string;
+  extra: string | null;
+  order_index: number;
+}
+
+export interface VehicleSpecInput {
+  category: string;
+  label: string;
+  value: string;
+  extra: string | null;
+  order_index: number;
+}
+
+export interface SaveVehicleSpecsInput {
+  vehicle_id: string;
+  specs: VehicleSpecInput[];
+}

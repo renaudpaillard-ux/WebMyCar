@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import ModalFrame from "../components/ModalFrame";
 import { useToast } from "../components/ToastProvider";
+import VehicleSpecsModal from "../components/VehicleSpecsModal";
 import { listEnergyTypes } from "../features/fuel/api";
 import type { EnergyType } from "../features/fuel/types";
-import { archiveVehicle, createVehicle, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
-import type { CreateVehicleInput, UpdateVehicleInput, Vehicle } from "../features/vehicles/types";
+import { archiveVehicle, createVehicle, listVehicleSpecs, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
+import type { CreateVehicleInput, UpdateVehicleInput, Vehicle, VehicleSpec } from "../features/vehicles/types";
 
 const POWERTRAIN_OPTIONS = [
   { value: "petrol", label: "Essence" },
@@ -28,6 +29,14 @@ const ENERGY_CATEGORY_LABELS: Record<string, string> = {
 };
 
 const ENERGY_CATEGORY_ORDER = ["petrol", "diesel", "gas_energy", "additive"];
+const VEHICLE_SUMMARY_LABEL_PRIORITY = [
+  "Pneus",
+  "Modèle",
+  "Bougies",
+  "Tracker GPS",
+  "Lieu achat",
+  "Contact",
+];
 
 interface EnergyTypeGroup {
   category: string;
@@ -127,6 +136,35 @@ function getPowertrainBadgeClass(value: string | null): string {
     default:
       return "badge badge--powertrain";
   }
+}
+
+function getVehicleSpecsSummary(specs: VehicleSpec[]): VehicleSpec[] {
+  const normalizedPriority = new Map(
+    VEHICLE_SUMMARY_LABEL_PRIORITY.map((label, index) => [label.toLocaleLowerCase("fr-FR"), index]),
+  );
+
+  const sortedSpecs = [...specs].sort((left, right) =>
+    left.category.localeCompare(right.category, "fr")
+    || left.order_index - right.order_index
+    || left.label.localeCompare(right.label, "fr"),
+  );
+
+  const prioritized = sortedSpecs
+    .filter((spec) => normalizedPriority.has(spec.label.toLocaleLowerCase("fr-FR")))
+    .sort((left, right) =>
+      (normalizedPriority.get(left.label.toLocaleLowerCase("fr-FR")) ?? 999)
+      - (normalizedPriority.get(right.label.toLocaleLowerCase("fr-FR")) ?? 999),
+    );
+
+  const merged = [...prioritized];
+  for (const spec of sortedSpecs) {
+    if (merged.some((current) => current.id === spec.id)) {
+      continue;
+    }
+    merged.push(spec);
+  }
+
+  return merged.slice(0, 4);
 }
 
 function formatEnergyTypeLabels(
@@ -492,12 +530,14 @@ function ArchiveConfirmModal({ vehicle, onCancel, onConfirmed }: ArchiveConfirmM
 interface VehicleRowProps {
   vehicle: Vehicle;
   energyTypeLabels: Map<string, string>;
+  summarySpecs: VehicleSpec[];
   onEdit: (vehicle: Vehicle) => void;
+  onManageSpecs: (vehicle: Vehicle) => void;
   onArchive: (vehicle: Vehicle) => void;
   onUnarchive: (id: string) => void;
 }
 
-function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive }: VehicleRowProps) {
+function VehicleRow({ vehicle, energyTypeLabels, summarySpecs, onEdit, onManageSpecs, onArchive, onUnarchive }: VehicleRowProps) {
   const subtitle = [vehicle.brand, vehicle.model].filter(Boolean).join(" ");
   const [unarchiving, setUnarchiving] = useState(false);
   const compatibleEnergyLabels = formatEnergyTypeLabels(vehicle.compatible_energy_type_ids, energyTypeLabels);
@@ -550,6 +590,23 @@ function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive 
       </td>
       <td>{vehicle.initial_mileage.toLocaleString("fr-FR")} km</td>
       <td>
+        {summarySpecs.length > 0 ? (
+          <div className="vehicle-specs-preview">
+            {summarySpecs.map((spec) => (
+              <div key={spec.id} className="vehicle-specs-preview__item">
+                <span className="vehicle-specs-preview__label">{spec.label}</span>
+                <span className="vehicle-specs-preview__value">{spec.value}</span>
+                {spec.extra && (
+                  <span className="vehicle-specs-preview__extra">{spec.extra}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span className="data-table__muted">Aucune fiche technique</span>
+        )}
+      </td>
+      <td>
         {vehicle.is_archived ? (
           <div className="table-actions">
             <span className="badge badge--neutral">Archivé</span>
@@ -563,6 +620,9 @@ function VehicleRow({ vehicle, energyTypeLabels, onEdit, onArchive, onUnarchive 
           </div>
         ) : (
           <div className="table-actions">
+            <button className="btn btn--secondary btn--sm" onClick={() => onManageSpecs(vehicle)}>
+              Fiche technique
+            </button>
             <button className="btn btn--secondary btn--sm" onClick={() => onEdit(vehicle)}>
               Modifier
             </button>
@@ -583,8 +643,10 @@ export default function VehiclesPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [specsVehicle, setSpecsVehicle] = useState<Vehicle | null>(null);
   const [archivingVehicle, setArchivingVehicle] = useState<Vehicle | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [specsByVehicle, setSpecsByVehicle] = useState<Record<string, VehicleSpec[]>>({});
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -604,6 +666,39 @@ export default function VehiclesPage() {
     () => new Map(energyTypes.map((energyType) => [energyType.id, energyType.label])),
     [energyTypes],
   );
+  const visibleVehicles = useMemo(() => vehicles.filter((vehicle) => showArchived || !vehicle.is_archived), [showArchived, vehicles]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (visibleVehicles.length === 0) {
+      setSpecsByVehicle({});
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    void Promise.all(
+      visibleVehicles.map(async (vehicle) => {
+        try {
+          const specs = await listVehicleSpecs(vehicle.id);
+          return [vehicle.id, getVehicleSpecsSummary(specs)] as const;
+        } catch {
+          return [vehicle.id, []] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setSpecsByVehicle(Object.fromEntries(entries));
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [visibleVehicles]);
 
   function closeModal() {
     setShowCreate(false);
@@ -698,6 +793,7 @@ export default function VehiclesPage() {
                   <th>Immatriculation</th>
                   <th>Motorisation</th>
                   <th>Kilométrage initial</th>
+                  <th>Fiche technique</th>
                   <th></th>
                 </tr>
               </thead>
@@ -707,7 +803,9 @@ export default function VehiclesPage() {
                     key={vehicle.id}
                     vehicle={vehicle}
                     energyTypeLabels={energyTypeLabels}
+                    summarySpecs={specsByVehicle[vehicle.id] ?? []}
                     onEdit={setEditingVehicle}
+                    onManageSpecs={setSpecsVehicle}
                     onArchive={setArchivingVehicle}
                     onUnarchive={handleUnarchived}
                   />
@@ -724,6 +822,19 @@ export default function VehiclesPage() {
           energyTypes={energyTypes}
           onClose={closeModal}
           onSaved={handleSaved}
+        />
+      )}
+
+      {specsVehicle !== null && (
+        <VehicleSpecsModal
+          vehicle={specsVehicle}
+          onSaved={(specs) => {
+            setSpecsByVehicle((previous) => ({
+              ...previous,
+              [specsVehicle.id]: getVehicleSpecsSummary(specs),
+            }));
+          }}
+          onClose={() => setSpecsVehicle(null)}
         />
       )}
 

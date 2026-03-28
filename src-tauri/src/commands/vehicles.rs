@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::db::DbState;
 use crate::error::{AppError, Result};
 use crate::models::vehicle::{CreateVehicleInput, UpdateVehicleInput, Vehicle};
+use crate::models::vehicle_spec::{SaveVehicleSpecsInput, VehicleSpec, VehicleSpecInput};
 
 #[tauri::command]
 pub fn list_vehicles(state: State<DbState>, include_archived: bool) -> Result<Vec<Vehicle>> {
@@ -226,6 +227,29 @@ pub fn unarchive_vehicle(state: State<DbState>, id: String) -> Result<()> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn list_vehicle_specs(state: State<DbState>, vehicle_id: String) -> Result<Vec<VehicleSpec>> {
+    let conn = state
+        .0
+        .lock()
+        .map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
+
+    ensure_vehicle_exists(&conn, &vehicle_id)?;
+    list_vehicle_specs_for_vehicle(&conn, &vehicle_id)
+}
+
+#[tauri::command]
+pub fn save_vehicle_specs(state: State<DbState>, input: SaveVehicleSpecsInput) -> Result<Vec<VehicleSpec>> {
+    let conn = state
+        .0
+        .lock()
+        .map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
+
+    ensure_vehicle_exists(&conn, &input.vehicle_id)?;
+    replace_vehicle_specs(&conn, &input.vehicle_id, input.specs)?;
+    list_vehicle_specs_for_vehicle(&conn, &input.vehicle_id)
+}
+
 fn get_vehicle_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Vehicle> {
     let row = conn.query_row(
         "SELECT id, name, brand, model, version, registration, vin, powertrain_type,
@@ -294,6 +318,64 @@ fn load_vehicle_energy_type_ids(conn: &rusqlite::Connection, vehicle_id: &str) -
     Ok(ids)
 }
 
+fn list_vehicle_specs_for_vehicle(conn: &rusqlite::Connection, vehicle_id: &str) -> Result<Vec<VehicleSpec>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, vehicle_id, category, label, value, extra, order_index
+         FROM vehicle_specs
+         WHERE vehicle_id = ?1
+         ORDER BY category COLLATE NOCASE ASC, order_index ASC, label COLLATE NOCASE ASC",
+    )?;
+
+    let specs = stmt
+        .query_map([vehicle_id], |row| {
+            Ok(VehicleSpec {
+                id: row.get(0)?,
+                vehicle_id: row.get(1)?,
+                category: row.get(2)?,
+                label: row.get(3)?,
+                value: row.get(4)?,
+                extra: row.get(5)?,
+                order_index: row.get(6)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(specs)
+}
+
+fn replace_vehicle_specs(
+    conn: &rusqlite::Connection,
+    vehicle_id: &str,
+    specs: Vec<VehicleSpecInput>,
+) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM vehicle_specs WHERE vehicle_id = ?1", [vehicle_id])?;
+
+    for spec in specs {
+        let category = normalize_spec_category(spec.category);
+        let label = normalize_spec_required_text(spec.label, "Le libellé d'une spécification est obligatoire")?;
+        let value = normalize_spec_required_text(spec.value, "La valeur d'une spécification est obligatoire")?;
+        let extra = normalize_optional_text(spec.extra);
+
+        tx.execute(
+            "INSERT INTO vehicle_specs (id, vehicle_id, category, label, value, extra, order_index)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                Uuid::new_v4().to_string(),
+                vehicle_id,
+                category,
+                label,
+                value,
+                extra,
+                spec.order_index,
+            ],
+        )?;
+    }
+
+    tx.commit()?;
+    Ok(())
+}
+
 fn replace_vehicle_energy_types(
     conn: &rusqlite::Connection,
     vehicle_id: &str,
@@ -308,6 +390,20 @@ fn replace_vehicle_energy_types(
              VALUES (?1, ?2, ?3)",
             params![vehicle_id, energy_type_id, now],
         )?;
+    }
+
+    Ok(())
+}
+
+fn ensure_vehicle_exists(conn: &rusqlite::Connection, vehicle_id: &str) -> Result<()> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM vehicles WHERE id = ?1",
+        [vehicle_id],
+        |row| row.get(0),
+    )?;
+
+    if count == 0 {
+        return Err(AppError::msg("Véhicule introuvable"));
     }
 
     Ok(())
@@ -383,6 +479,24 @@ fn normalize_required_text(value: Option<String>, message: &str) -> Result<Strin
     normalize_optional_text(value).ok_or_else(|| AppError::msg(message))
 }
 
+fn normalize_spec_required_text(value: String, message: &str) -> Result<String> {
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        Err(AppError::msg(message))
+    } else {
+        Ok(trimmed)
+    }
+}
+
+fn normalize_spec_category(value: String) -> String {
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        "Autres informations".to_string()
+    } else {
+        trimmed
+    }
+}
+
 fn normalize_energy_type_ids(values: Vec<String>) -> Vec<String> {
     let mut unique = Vec::new();
 
@@ -394,4 +508,88 @@ fn normalize_energy_type_ids(values: Vec<String>) -> Vec<String> {
     }
 
     unique
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn setup_specs_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute_batch(
+            "
+            CREATE TABLE vehicles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                is_archived INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE vehicle_specs (
+                id TEXT PRIMARY KEY,
+                vehicle_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                label TEXT NOT NULL,
+                value TEXT NOT NULL,
+                extra TEXT,
+                order_index INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO vehicles (id, name, is_archived, created_at, updated_at)
+            VALUES ('vehicle-1', 'Test', 0, '', '');
+            ",
+        )
+        .expect("prepare schema");
+        conn
+    }
+
+    #[test]
+    fn replaces_specs_in_block_and_returns_sorted_rows() {
+        let conn = setup_specs_test_conn();
+
+        replace_vehicle_specs(
+            &conn,
+            "vehicle-1",
+            vec![
+                VehicleSpecInput {
+                    category: "Sécurité".to_string(),
+                    label: "Boulons antivol".to_string(),
+                    value: "McGard".to_string(),
+                    extra: Some("27170SUB".to_string()),
+                    order_index: 1,
+                },
+                VehicleSpecInput {
+                    category: "Pneumatiques".to_string(),
+                    label: "Pneus".to_string(),
+                    value: "225/55 R18".to_string(),
+                    extra: None,
+                    order_index: 0,
+                },
+            ],
+        )
+        .expect("replace specs");
+
+        let specs = list_vehicle_specs_for_vehicle(&conn, "vehicle-1").expect("list specs");
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].category, "Pneumatiques");
+        assert_eq!(specs[1].category, "Sécurité");
+
+        replace_vehicle_specs(
+            &conn,
+            "vehicle-1",
+            vec![VehicleSpecInput {
+                category: "".to_string(),
+                label: "Tracker GPS".to_string(),
+                value: "Invoxia".to_string(),
+                extra: Some("2432973B10E84EF".to_string()),
+                order_index: 0,
+            }],
+        )
+        .expect("replace specs a second time");
+
+        let specs = list_vehicle_specs_for_vehicle(&conn, "vehicle-1").expect("list specs after replace");
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].category, "Autres informations");
+        assert_eq!(specs[0].label, "Tracker GPS");
+    }
 }
