@@ -4,8 +4,8 @@ import { useToast } from "../components/ToastProvider";
 import VehicleSpecsModal from "../components/VehicleSpecsModal";
 import { listEnergyTypes } from "../features/fuel/api";
 import type { EnergyType } from "../features/fuel/types";
-import { archiveVehicle, createVehicle, listVehicleSpecs, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
-import type { CreateVehicleInput, UpdateVehicleInput, Vehicle, VehicleSpec } from "../features/vehicles/types";
+import { archiveVehicle, createVehicle, listVehicles, unarchiveVehicle, updateVehicle } from "../features/vehicles/api";
+import type { CreateVehicleInput, UpdateVehicleInput, Vehicle } from "../features/vehicles/types";
 
 const POWERTRAIN_OPTIONS = [
   { value: "petrol", label: "Essence" },
@@ -127,16 +127,6 @@ function getPowertrainBadgeClass(value: string | null): string {
     default:
       return "badge badge--powertrain";
   }
-}
-
-function getVehicleSpecsSummary(specs: VehicleSpec[]): VehicleSpec[] {
-  const sortedSpecs = [...specs].sort((left, right) =>
-    left.category.localeCompare(right.category, "fr")
-    || left.order_index - right.order_index
-    || left.label.localeCompare(right.label, "fr"),
-  );
-
-  return sortedSpecs.slice(0, 4);
 }
 
 function formatEnergyTypeLabels(
@@ -502,14 +492,13 @@ function ArchiveConfirmModal({ vehicle, onCancel, onConfirmed }: ArchiveConfirmM
 interface VehicleRowProps {
   vehicle: Vehicle;
   energyTypeLabels: Map<string, string>;
-  summarySpecs: VehicleSpec[];
   onEdit: (vehicle: Vehicle) => void;
   onManageSpecs: (vehicle: Vehicle) => void;
   onArchive: (vehicle: Vehicle) => void;
   onUnarchive: (id: string) => void;
 }
 
-function VehicleRow({ vehicle, energyTypeLabels, summarySpecs, onEdit, onManageSpecs, onArchive, onUnarchive }: VehicleRowProps) {
+function VehicleRow({ vehicle, energyTypeLabels, onEdit, onManageSpecs, onArchive, onUnarchive }: VehicleRowProps) {
   const subtitle = [vehicle.brand, vehicle.model].filter(Boolean).join(" ");
   const [unarchiving, setUnarchiving] = useState(false);
   const compatibleEnergyLabels = formatEnergyTypeLabels(vehicle.compatible_energy_type_ids, energyTypeLabels);
@@ -560,24 +549,6 @@ function VehicleRow({ vehicle, energyTypeLabels, summarySpecs, onEdit, onManageS
           <span className="data-table__muted">—</span>
         )}
       </td>
-      <td className="cell--number data-table__metric">{vehicle.initial_mileage.toLocaleString("fr-FR")} km</td>
-      <td className="cell--secondary">
-        {summarySpecs.length > 0 ? (
-          <div className="vehicle-specs-preview">
-            {summarySpecs.map((spec) => (
-              <div key={spec.id} className="vehicle-specs-preview__item">
-                <span className="vehicle-specs-preview__label">{spec.label}</span>
-                <span className="vehicle-specs-preview__value">{spec.value}</span>
-                {spec.extra && (
-                  <span className="vehicle-specs-preview__extra">{spec.extra}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <span className="data-table__muted">Aucune fiche technique</span>
-        )}
-      </td>
       <td className="cell--actions">
         {vehicle.is_archived ? (
           <div className="table-actions">
@@ -618,7 +589,6 @@ export default function VehiclesPage() {
   const [specsVehicle, setSpecsVehicle] = useState<Vehicle | null>(null);
   const [archivingVehicle, setArchivingVehicle] = useState<Vehicle | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [specsByVehicle, setSpecsByVehicle] = useState<Record<string, VehicleSpec[]>>({});
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -638,39 +608,6 @@ export default function VehiclesPage() {
     () => new Map(energyTypes.map((energyType) => [energyType.id, energyType.label])),
     [energyTypes],
   );
-  const visibleVehicles = useMemo(() => vehicles.filter((vehicle) => showArchived || !vehicle.is_archived), [showArchived, vehicles]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (visibleVehicles.length === 0) {
-      setSpecsByVehicle({});
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    void Promise.all(
-      visibleVehicles.map(async (vehicle) => {
-        try {
-          const specs = await listVehicleSpecs(vehicle.id);
-          return [vehicle.id, getVehicleSpecsSummary(specs)] as const;
-        } catch {
-          return [vehicle.id, []] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (!isMounted) {
-        return;
-      }
-
-      setSpecsByVehicle(Object.fromEntries(entries));
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [visibleVehicles]);
 
   function closeModal() {
     setShowCreate(false);
@@ -716,7 +653,7 @@ export default function VehiclesPage() {
           <h1 className="page-header__title">Véhicules</h1>
           <p className="page-header__subtitle">Gérez vos fiches véhicules.</p>
         </div>
-        <div className="page-actions">
+        <div className="page-actions vehicles-page__actions">
           <label className="form-switch">
             <input
               type="checkbox"
@@ -745,18 +682,6 @@ export default function VehiclesPage() {
         </div>
       ) : (
         <section className="surface-panel table-shell">
-          <div className="surface-panel__body">
-            <div className="section-heading">
-              <div>
-                <h2 className="section-heading__title">
-                  Liste des véhicules
-                </h2>
-                <p className="section-heading__subtitle">
-                  Double-cliquez sur une ligne active pour modifier rapidement une fiche.
-                </p>
-              </div>
-            </div>
-          </div>
           <div className="table-scroll">
             <table className="data-table data-table--vehicles">
               <thead>
@@ -764,8 +689,6 @@ export default function VehiclesPage() {
                   <th>Véhicule</th>
                   <th>Immatriculation</th>
                   <th>Motorisation</th>
-                  <th className="cell--number">Kilométrage initial</th>
-                  <th>Fiche technique</th>
                   <th className="cell--actions">Actions</th>
                 </tr>
               </thead>
@@ -775,7 +698,6 @@ export default function VehiclesPage() {
                     key={vehicle.id}
                     vehicle={vehicle}
                     energyTypeLabels={energyTypeLabels}
-                    summarySpecs={specsByVehicle[vehicle.id] ?? []}
                     onEdit={setEditingVehicle}
                     onManageSpecs={setSpecsVehicle}
                     onArchive={setArchivingVehicle}
@@ -800,12 +722,7 @@ export default function VehiclesPage() {
       {specsVehicle !== null && (
         <VehicleSpecsModal
           vehicle={specsVehicle}
-          onSaved={(specs) => {
-            setSpecsByVehicle((previous) => ({
-              ...previous,
-              [specsVehicle.id]: getVehicleSpecsSummary(specs),
-            }));
-          }}
+          onSaved={(_specs) => {}}
           onClose={() => setSpecsVehicle(null)}
         />
       )}
