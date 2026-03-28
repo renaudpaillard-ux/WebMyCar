@@ -135,7 +135,7 @@ function SortableSpecLineRow({
             value={line.label}
             onChange={onFieldChange(line.localId, "label")}
             onBlur={onFieldBlur(line.localId, "label")}
-            placeholder="ex. Pneus"
+            placeholder="ex. Libellé"
             aria-label="Libellé"
           />
         </div>
@@ -145,7 +145,7 @@ function SortableSpecLineRow({
             value={line.value}
             onChange={onFieldChange(line.localId, "value")}
             onBlur={onFieldBlur(line.localId, "value")}
-            placeholder="ex. 225/55 R18 98 V"
+            placeholder="ex. Valeur"
             aria-label="Valeur"
           />
         </div>
@@ -155,7 +155,7 @@ function SortableSpecLineRow({
             value={line.extra}
             onChange={onFieldChange(line.localId, "extra")}
             onBlur={onFieldBlur(line.localId, "extra")}
-            placeholder="ex. Référence ou note"
+            placeholder="ex. Complément"
             aria-label="Complément"
           />
         </div>

@@ -707,16 +707,16 @@ mod tests {
             "vehicle-1",
             vec![
                 VehicleSpecInput {
-                    category: "Sécurité".to_string(),
-                    label: "Boulons antivol".to_string(),
-                    value: "McGard".to_string(),
-                    extra: Some("27170SUB".to_string()),
+                    category: "Catégorie B".to_string(),
+                    label: "Libellé B".to_string(),
+                    value: "Valeur B".to_string(),
+                    extra: Some("Extra B".to_string()),
                     order_index: 1,
                 },
                 VehicleSpecInput {
-                    category: "Pneumatiques".to_string(),
-                    label: "Pneus".to_string(),
-                    value: "225/55 R18".to_string(),
+                    category: "Catégorie A".to_string(),
+                    label: "Libellé A".to_string(),
+                    value: "Valeur A".to_string(),
                     extra: None,
                     order_index: 0,
                 },
@@ -726,17 +726,17 @@ mod tests {
 
         let specs = list_vehicle_specs_for_vehicle(&conn, "vehicle-1").expect("list specs");
         assert_eq!(specs.len(), 2);
-        assert_eq!(specs[0].category, "Pneumatiques");
-        assert_eq!(specs[1].category, "Sécurité");
+        assert_eq!(specs[0].category, "Catégorie A");
+        assert_eq!(specs[1].category, "Catégorie B");
 
         replace_vehicle_specs(
             &conn,
             "vehicle-1",
             vec![VehicleSpecInput {
                 category: "".to_string(),
-                label: "Tracker GPS".to_string(),
-                value: "Invoxia".to_string(),
-                extra: Some("2432973B10E84EF".to_string()),
+                label: "Libellé test".to_string(),
+                value: "Valeur test".to_string(),
+                extra: Some("Extra test".to_string()),
                 order_index: 0,
             }],
         )
@@ -745,7 +745,7 @@ mod tests {
         let specs = list_vehicle_specs_for_vehicle(&conn, "vehicle-1").expect("list specs after replace");
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].category, "Autres informations");
-        assert_eq!(specs[0].label, "Tracker GPS");
+        assert_eq!(specs[0].label, "Libellé test");
     }
 
     #[test]
@@ -757,18 +757,18 @@ mod tests {
             "vehicle-1",
             vec![
                 VehicleSpecCategoryInput {
-                    name: "Pneumatiques".to_string(),
+                    name: "Catégorie A".to_string(),
                     order_index: 0,
                 },
                 VehicleSpecCategoryInput {
-                    name: "Références".to_string(),
+                    name: "Catégorie B".to_string(),
                     order_index: 1,
                 },
             ],
             vec![VehicleSpecInput {
-                category: "Pneumatiques".to_string(),
-                label: "Pneus".to_string(),
-                value: "225/55 R18".to_string(),
+                category: "Catégorie A".to_string(),
+                label: "Libellé A".to_string(),
+                value: "Valeur A".to_string(),
                 extra: None,
                 order_index: 0,
             }],
@@ -777,11 +777,11 @@ mod tests {
 
         let categories = list_vehicle_spec_categories_for_vehicle(&conn, "vehicle-1").expect("list categories");
         assert_eq!(categories.len(), 2);
-        assert_eq!(categories[0].name, "Pneumatiques");
-        assert_eq!(categories[1].name, "Références");
+        assert_eq!(categories[0].name, "Catégorie A");
+        assert_eq!(categories[1].name, "Catégorie B");
 
         let specs = list_vehicle_specs_for_vehicle(&conn, "vehicle-1").expect("list specs");
         assert_eq!(specs.len(), 1);
-        assert_eq!(specs[0].category, "Pneumatiques");
+        assert_eq!(specs[0].category, "Catégorie A");
     }
 }

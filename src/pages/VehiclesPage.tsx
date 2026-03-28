@@ -29,15 +29,6 @@ const ENERGY_CATEGORY_LABELS: Record<string, string> = {
 };
 
 const ENERGY_CATEGORY_ORDER = ["petrol", "diesel", "gas_energy", "additive"];
-const VEHICLE_SUMMARY_LABEL_PRIORITY = [
-  "Pneus",
-  "Modèle",
-  "Bougies",
-  "Tracker GPS",
-  "Lieu achat",
-  "Contact",
-];
-
 interface EnergyTypeGroup {
   category: string;
   label: string;
@@ -139,32 +130,13 @@ function getPowertrainBadgeClass(value: string | null): string {
 }
 
 function getVehicleSpecsSummary(specs: VehicleSpec[]): VehicleSpec[] {
-  const normalizedPriority = new Map(
-    VEHICLE_SUMMARY_LABEL_PRIORITY.map((label, index) => [label.toLocaleLowerCase("fr-FR"), index]),
-  );
-
   const sortedSpecs = [...specs].sort((left, right) =>
     left.category.localeCompare(right.category, "fr")
     || left.order_index - right.order_index
     || left.label.localeCompare(right.label, "fr"),
   );
 
-  const prioritized = sortedSpecs
-    .filter((spec) => normalizedPriority.has(spec.label.toLocaleLowerCase("fr-FR")))
-    .sort((left, right) =>
-      (normalizedPriority.get(left.label.toLocaleLowerCase("fr-FR")) ?? 999)
-      - (normalizedPriority.get(right.label.toLocaleLowerCase("fr-FR")) ?? 999),
-    );
-
-  const merged = [...prioritized];
-  for (const spec of sortedSpecs) {
-    if (merged.some((current) => current.id === spec.id)) {
-      continue;
-    }
-    merged.push(spec);
-  }
-
-  return merged.slice(0, 4);
+  return sortedSpecs.slice(0, 4);
 }
 
 function formatEnergyTypeLabels(
