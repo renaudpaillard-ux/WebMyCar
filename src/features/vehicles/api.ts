@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   CreateVehicleInput,
+  SaveVehicleSpecSheetInput,
   SaveVehicleSpecsInput,
   UpdateVehicleInput,
   Vehicle,
+  VehicleSpecSheet,
   VehicleSpec,
 } from "./types";
 
@@ -33,4 +35,12 @@ export async function listVehicleSpecs(vehicleId: string): Promise<VehicleSpec[]
 
 export async function saveVehicleSpecs(input: SaveVehicleSpecsInput): Promise<VehicleSpec[]> {
   return invoke<VehicleSpec[]>("save_vehicle_specs", { input });
+}
+
+export async function listVehicleSpecSheet(vehicleId: string): Promise<VehicleSpecSheet> {
+  return invoke<VehicleSpecSheet>("list_vehicle_spec_sheet", { vehicleId });
+}
+
+export async function saveVehicleSpecSheet(input: SaveVehicleSpecSheetInput): Promise<VehicleSpecSheet> {
+  return invoke<VehicleSpecSheet>("save_vehicle_spec_sheet", { input });
 }

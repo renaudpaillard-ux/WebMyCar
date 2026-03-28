@@ -67,6 +67,10 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             "009_create_vehicle_specs",
             include_str!("migrations/009_create_vehicle_specs.sql"),
         ),
+        (
+            "010_create_vehicle_spec_categories",
+            include_str!("migrations/010_create_vehicle_spec_categories.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {

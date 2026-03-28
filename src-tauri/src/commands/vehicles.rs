@@ -5,7 +5,15 @@ use uuid::Uuid;
 use crate::db::DbState;
 use crate::error::{AppError, Result};
 use crate::models::vehicle::{CreateVehicleInput, UpdateVehicleInput, Vehicle};
-use crate::models::vehicle_spec::{SaveVehicleSpecsInput, VehicleSpec, VehicleSpecInput};
+use crate::models::vehicle_spec::{
+    SaveVehicleSpecSheetInput,
+    SaveVehicleSpecsInput,
+    VehicleSpec,
+    VehicleSpecCategory,
+    VehicleSpecCategoryInput,
+    VehicleSpecInput,
+    VehicleSpecSheet,
+};
 
 #[tauri::command]
 pub fn list_vehicles(state: State<DbState>, include_archived: bool) -> Result<Vec<Vehicle>> {
@@ -250,6 +258,36 @@ pub fn save_vehicle_specs(state: State<DbState>, input: SaveVehicleSpecsInput) -
     list_vehicle_specs_for_vehicle(&conn, &input.vehicle_id)
 }
 
+#[tauri::command]
+pub fn list_vehicle_spec_sheet(state: State<DbState>, vehicle_id: String) -> Result<VehicleSpecSheet> {
+    let conn = state
+        .0
+        .lock()
+        .map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
+
+    ensure_vehicle_exists(&conn, &vehicle_id)?;
+    Ok(VehicleSpecSheet {
+        categories: list_vehicle_spec_categories_for_vehicle(&conn, &vehicle_id)?,
+        specs: list_vehicle_specs_for_vehicle(&conn, &vehicle_id)?,
+    })
+}
+
+#[tauri::command]
+pub fn save_vehicle_spec_sheet(state: State<DbState>, input: SaveVehicleSpecSheetInput) -> Result<VehicleSpecSheet> {
+    let conn = state
+        .0
+        .lock()
+        .map_err(|_| AppError::msg("Erreur d'accès à la base de données"))?;
+
+    ensure_vehicle_exists(&conn, &input.vehicle_id)?;
+    replace_vehicle_spec_sheet(&conn, &input.vehicle_id, input.categories, input.specs)?;
+
+    Ok(VehicleSpecSheet {
+        categories: list_vehicle_spec_categories_for_vehicle(&conn, &input.vehicle_id)?,
+        specs: list_vehicle_specs_for_vehicle(&conn, &input.vehicle_id)?,
+    })
+}
+
 fn get_vehicle_by_id(conn: &rusqlite::Connection, id: &str) -> Result<Vehicle> {
     let row = conn.query_row(
         "SELECT id, name, brand, model, version, registration, vin, powertrain_type,
@@ -321,9 +359,18 @@ fn load_vehicle_energy_type_ids(conn: &rusqlite::Connection, vehicle_id: &str) -
 fn list_vehicle_specs_for_vehicle(conn: &rusqlite::Connection, vehicle_id: &str) -> Result<Vec<VehicleSpec>> {
     let mut stmt = conn.prepare(
         "SELECT id, vehicle_id, category, label, value, extra, order_index
-         FROM vehicle_specs
+         FROM vehicle_specs specs
          WHERE vehicle_id = ?1
-         ORDER BY category COLLATE NOCASE ASC, order_index ASC, label COLLATE NOCASE ASC",
+         ORDER BY COALESCE(
+             (
+                 SELECT categories.order_index
+                 FROM vehicle_spec_categories categories
+                 WHERE categories.vehicle_id = specs.vehicle_id AND categories.name = specs.category
+             ),
+             9999
+         ) ASC,
+         order_index ASC,
+         label COLLATE NOCASE ASC",
     )?;
 
     let specs = stmt
@@ -341,6 +388,84 @@ fn list_vehicle_specs_for_vehicle(conn: &rusqlite::Connection, vehicle_id: &str)
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(specs)
+}
+
+fn list_vehicle_spec_categories_for_vehicle(
+    conn: &rusqlite::Connection,
+    vehicle_id: &str,
+) -> Result<Vec<VehicleSpecCategory>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, vehicle_id, name, order_index
+         FROM vehicle_spec_categories
+         WHERE vehicle_id = ?1
+         ORDER BY order_index ASC, name COLLATE NOCASE ASC",
+    )?;
+
+    let categories = stmt
+        .query_map([vehicle_id], |row| {
+            Ok(VehicleSpecCategory {
+                id: row.get(0)?,
+                vehicle_id: row.get(1)?,
+                name: row.get(2)?,
+                order_index: row.get(3)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(categories)
+}
+
+fn replace_vehicle_spec_sheet(
+    conn: &rusqlite::Connection,
+    vehicle_id: &str,
+    categories: Vec<VehicleSpecCategoryInput>,
+    specs: Vec<VehicleSpecInput>,
+) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM vehicle_spec_categories WHERE vehicle_id = ?1", [vehicle_id])?;
+    tx.execute("DELETE FROM vehicle_specs WHERE vehicle_id = ?1", [vehicle_id])?;
+
+    let normalized_categories = normalize_vehicle_spec_categories(categories)?;
+    for category in &normalized_categories {
+        tx.execute(
+            "INSERT INTO vehicle_spec_categories (id, vehicle_id, name, order_index)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                Uuid::new_v4().to_string(),
+                vehicle_id,
+                category.name,
+                category.order_index,
+            ],
+        )?;
+    }
+
+    for spec in specs {
+        let category = normalize_spec_category(spec.category);
+        if !normalized_categories.iter().any(|current| current.name == category) {
+            return Err(AppError::msg("Une ligne référence une catégorie introuvable"));
+        }
+
+        let label = normalize_spec_required_text(spec.label, "Le libellé d'une spécification est obligatoire")?;
+        let value = normalize_spec_required_text(spec.value, "La valeur d'une spécification est obligatoire")?;
+        let extra = normalize_optional_text(spec.extra);
+
+        tx.execute(
+            "INSERT INTO vehicle_specs (id, vehicle_id, category, label, value, extra, order_index)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                Uuid::new_v4().to_string(),
+                vehicle_id,
+                category,
+                label,
+                value,
+                extra,
+                spec.order_index,
+            ],
+        )?;
+    }
+
+    tx.commit()?;
+    Ok(())
 }
 
 fn replace_vehicle_specs(
@@ -497,6 +622,30 @@ fn normalize_spec_category(value: String) -> String {
     }
 }
 
+fn normalize_vehicle_spec_categories(
+    categories: Vec<VehicleSpecCategoryInput>,
+) -> Result<Vec<VehicleSpecCategoryInput>> {
+    let mut normalized = Vec::new();
+
+    for category in categories {
+        let name = category.name.trim().to_string();
+        if name.is_empty() {
+            return Err(AppError::msg("Le nom d'une catégorie est obligatoire"));
+        }
+
+        if normalized.iter().any(|current: &VehicleSpecCategoryInput| current.name.eq_ignore_ascii_case(&name)) {
+            return Err(AppError::msg("Les catégories doivent avoir des noms distincts"));
+        }
+
+        normalized.push(VehicleSpecCategoryInput {
+            name,
+            order_index: category.order_index,
+        });
+    }
+
+    Ok(normalized)
+}
+
 fn normalize_energy_type_ids(values: Vec<String>) -> Vec<String> {
     let mut unique = Vec::new();
 
@@ -533,6 +682,12 @@ mod tests {
                 label TEXT NOT NULL,
                 value TEXT NOT NULL,
                 extra TEXT,
+                order_index INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE vehicle_spec_categories (
+                id TEXT PRIMARY KEY,
+                vehicle_id TEXT NOT NULL,
+                name TEXT NOT NULL,
                 order_index INTEGER NOT NULL DEFAULT 0
             );
             INSERT INTO vehicles (id, name, is_archived, created_at, updated_at)
@@ -591,5 +746,42 @@ mod tests {
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].category, "Autres informations");
         assert_eq!(specs[0].label, "Tracker GPS");
+    }
+
+    #[test]
+    fn saves_category_order_and_empty_categories_in_sheet() {
+        let conn = setup_specs_test_conn();
+
+        replace_vehicle_spec_sheet(
+            &conn,
+            "vehicle-1",
+            vec![
+                VehicleSpecCategoryInput {
+                    name: "Pneumatiques".to_string(),
+                    order_index: 0,
+                },
+                VehicleSpecCategoryInput {
+                    name: "Références".to_string(),
+                    order_index: 1,
+                },
+            ],
+            vec![VehicleSpecInput {
+                category: "Pneumatiques".to_string(),
+                label: "Pneus".to_string(),
+                value: "225/55 R18".to_string(),
+                extra: None,
+                order_index: 0,
+            }],
+        )
+        .expect("save sheet");
+
+        let categories = list_vehicle_spec_categories_for_vehicle(&conn, "vehicle-1").expect("list categories");
+        assert_eq!(categories.len(), 2);
+        assert_eq!(categories[0].name, "Pneumatiques");
+        assert_eq!(categories[1].name, "Références");
+
+        let specs = list_vehicle_specs_for_vehicle(&conn, "vehicle-1").expect("list specs");
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].category, "Pneumatiques");
     }
 }

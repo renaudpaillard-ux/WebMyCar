@@ -21,6 +21,7 @@ export default function ModalFrame({ title, onClose, children, className }: Moda
   const modalRef = useRef<HTMLDivElement | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const dragSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const overlayPointerDownRef = useRef(false);
   const [position, setPosition] = useState<ModalPosition | null>(null);
 
   useEffect(() => {
@@ -100,8 +101,24 @@ export default function ModalFrame({ title, onClose, children, className }: Moda
     dragSizeRef.current = null;
   }
 
+  function handleOverlayPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    overlayPointerDownRef.current = event.target === event.currentTarget;
+  }
+
+  function handleOverlayClick(event: React.MouseEvent<HTMLDivElement>) {
+    const clickedBackdrop = event.target === event.currentTarget;
+    if (clickedBackdrop && overlayPointerDownRef.current) {
+      onClose();
+    }
+    overlayPointerDownRef.current = false;
+  }
+
   const modalContent = (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      onPointerDown={handleOverlayPointerDown}
+      onClick={handleOverlayClick}
+    >
       <div
         ref={modalRef}
         className={["modal", className, position ? "modal--dragged" : ""].filter(Boolean).join(" ")}

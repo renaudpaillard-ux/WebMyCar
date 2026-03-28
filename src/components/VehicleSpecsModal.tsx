@@ -1,34 +1,45 @@
-import { useEffect, useId, useMemo, useState } from "react";
-import { listVehicleSpecs, saveVehicleSpecs } from "../features/vehicles/api";
-import type { Vehicle, VehicleSpec, VehicleSpecInput } from "../features/vehicles/types";
+import type { DragEndEvent } from "@dnd-kit/core";
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useEffect, useState } from "react";
+import { listVehicleSpecSheet, saveVehicleSpecSheet } from "../features/vehicles/api";
+import type {
+  SaveVehicleSpecSheetInput,
+  Vehicle,
+  VehicleSpec,
+  VehicleSpecCategory,
+  VehicleSpecInput,
+} from "../features/vehicles/types";
 import ModalFrame from "./ModalFrame";
 import { useToast } from "./ToastProvider";
 
-const SUGGESTED_CATEGORIES = [
-  "Pneumatiques",
-  "Entretien",
-  "Sécurité",
-  "Équipements",
-  "Achat",
-  "Autres informations",
-];
-
-const LABEL_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
-  Pneumatiques: ["Pneus", "Modèle", "Roue de secours"],
-  Entretien: ["Bougies", "Essuie-glace AV conducteur", "Essuie-glace AV passager", "Batterie"],
-  Sécurité: ["Boulons antivol", "Référence", "Julian Date"],
-  Équipements: ["Tracker GPS", "Identifiant", "Caméra", "Tapis"],
-  Achat: ["Lieu achat", "Contact", "N° ANTS", "KM à l'achat", "Prix d'achat"],
-  "Autres informations": ["Note", "Référence", "Commentaire"],
-};
-
-interface VehicleSpecDraft {
+interface SpecLineDraft {
   localId: string;
-  category: string;
   label: string;
   value: string;
   extra: string;
   order_index: number;
+}
+
+interface CategoryDraft {
+  localId: string;
+  name: string;
+  order_index: number;
+  lines: SpecLineDraft[];
+}
+
+interface SortableSpecLineRowProps {
+  line: SpecLineDraft;
+  incomplete: boolean;
+  onFieldChange: (lineLocalId: string, field: keyof Omit<SpecLineDraft, "localId" | "order_index">) => (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onFieldBlur: (lineLocalId: string, field: keyof Omit<SpecLineDraft, "localId" | "order_index">) => (event: React.FocusEvent<HTMLInputElement>) => void;
+  onDelete: (lineLocalId: string) => void;
 }
 
 interface VehicleSpecsModalProps {
@@ -37,88 +48,208 @@ interface VehicleSpecsModalProps {
   onSaved: (specs: VehicleSpec[]) => void;
 }
 
-function specToDraft(spec: VehicleSpec): VehicleSpecDraft {
-  return {
-    localId: spec.id,
-    category: spec.category,
-    label: spec.label,
-    value: spec.value,
-    extra: spec.extra ?? "",
-    order_index: spec.order_index,
-  };
+function buildLocalId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function normalizeCategory(value: string): string {
-  const trimmed = value.trim();
-  return trimmed || "Autres informations";
-}
-
-function sortDrafts(left: VehicleSpecDraft, right: VehicleSpecDraft): number {
-  return left.order_index - right.order_index || left.label.localeCompare(right.label, "fr");
-}
-
-function reindexCategory(drafts: VehicleSpecDraft[], category: string): VehicleSpecDraft[] {
-  const normalizedCategory = normalizeCategory(category);
-  let orderIndex = 0;
-
-  return drafts.map((draft) => {
-    if (normalizeCategory(draft.category) !== normalizedCategory) {
-      return draft;
-    }
-
-    const nextDraft = {
-      ...draft,
-      category: normalizedCategory,
-      order_index: orderIndex,
-    };
-    orderIndex += 1;
-    return nextDraft;
-  });
-}
-
-function getNextOrderIndex(drafts: VehicleSpecDraft[], category: string): number {
-  const normalizedCategory = normalizeCategory(category);
-  return drafts.filter((draft) => normalizeCategory(draft.category) === normalizedCategory).length;
-}
-
-function trimDraftValue(value: string): string {
+function trimValue(value: string): string {
   return value.trim();
 }
 
-function normalizeDraft(draft: VehicleSpecDraft): VehicleSpecDraft {
+function sortLines(left: SpecLineDraft, right: SpecLineDraft): number {
+  return left.order_index - right.order_index || left.label.localeCompare(right.label, "fr");
+}
+
+function reindexLines(lines: SpecLineDraft[]): SpecLineDraft[] {
+  return lines.map((line, index) => ({ ...line, order_index: index }));
+}
+
+function reindexCategories(categories: CategoryDraft[]): CategoryDraft[] {
+  return categories.map((category, index) => ({ ...category, order_index: index }));
+}
+
+function isLineEmpty(line: SpecLineDraft): boolean {
+  return !trimValue(line.label) && !trimValue(line.value) && !trimValue(line.extra);
+}
+
+function isLineIncomplete(line: SpecLineDraft): boolean {
+  return Boolean(trimValue(line.label)) !== Boolean(trimValue(line.value));
+}
+
+function createEmptyLine(orderIndex: number): SpecLineDraft {
   return {
-    ...draft,
-    category: normalizeCategory(draft.category),
-    label: trimDraftValue(draft.label),
-    value: trimDraftValue(draft.value),
-    extra: trimDraftValue(draft.extra),
+    localId: buildLocalId("line"),
+    label: "",
+    value: "",
+    extra: "",
+    order_index: orderIndex,
   };
 }
 
-function isDraftCompletelyEmpty(draft: VehicleSpecDraft): boolean {
-  return !draft.label && !draft.value;
+function buildDefaultCategoryName(categories: CategoryDraft[]): string {
+  const existingNames = new Set(
+    categories.map((category) => trimValue(category.name).toLocaleLowerCase("fr")).filter(Boolean),
+  );
+
+  if (!existingNames.has("nouvelle catégorie")) {
+    return "Nouvelle catégorie";
+  }
+
+  let index = 2;
+  while (existingNames.has(`nouvelle catégorie ${index}`)) {
+    index += 1;
+  }
+
+  return `Nouvelle catégorie ${index}`;
 }
 
-function isDraftIncomplete(draft: VehicleSpecDraft): boolean {
-  return Boolean(trimDraftValue(draft.label)) !== Boolean(trimDraftValue(draft.value));
+function SortableSpecLineRow({
+  line,
+  incomplete,
+  onFieldChange,
+  onFieldBlur,
+  onDelete,
+}: SortableSpecLineRowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: line.localId });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={["specs-row", isDragging ? "specs-row--dragging" : ""].filter(Boolean).join(" ")}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+    >
+      <div className="specs-row__grid">
+        <div>
+          <input
+            className="form-input"
+            value={line.label}
+            onChange={onFieldChange(line.localId, "label")}
+            onBlur={onFieldBlur(line.localId, "label")}
+            placeholder="ex. Pneus"
+            aria-label="Libellé"
+          />
+        </div>
+        <div>
+          <input
+            className="form-input"
+            value={line.value}
+            onChange={onFieldChange(line.localId, "value")}
+            onBlur={onFieldBlur(line.localId, "value")}
+            placeholder="ex. 225/55 R18 98 V"
+            aria-label="Valeur"
+          />
+        </div>
+        <div>
+          <input
+            className="form-input"
+            value={line.extra}
+            onChange={onFieldChange(line.localId, "extra")}
+            onBlur={onFieldBlur(line.localId, "extra")}
+            placeholder="ex. Référence ou note"
+            aria-label="Complément"
+          />
+        </div>
+        <div className="specs-row__actions">
+          <button
+            type="button"
+            className="specs-row__icon-btn"
+            onClick={() => onDelete(line.localId)}
+            aria-label="Supprimer la ligne"
+            title="Supprimer la ligne"
+          >
+            🗑
+          </button>
+          <button
+            type="button"
+            className="specs-row__icon-btn specs-row__drag-handle"
+            aria-label="Réordonner la ligne"
+            title="Réordonner la ligne"
+            {...attributes}
+            {...listeners}
+          >
+            ≡
+          </button>
+        </div>
+      </div>
+      {incomplete && (
+        <div className="specs-row__hint">
+          Renseignez le libellé et la valeur pour enregistrer cette ligne.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function groupSheet(categories: VehicleSpecCategory[], specs: VehicleSpec[]): CategoryDraft[] {
+  const groupedSpecs = new Map<string, SpecLineDraft[]>();
+
+  for (const spec of specs) {
+    const lines = groupedSpecs.get(spec.category) ?? [];
+    lines.push({
+      localId: spec.id,
+      label: spec.label,
+      value: spec.value,
+      extra: spec.extra ?? "",
+      order_index: spec.order_index,
+    });
+    groupedSpecs.set(spec.category, lines);
+  }
+
+  const drafts = categories.map((category) => ({
+    localId: category.id,
+    name: category.name,
+    order_index: category.order_index,
+    lines: reindexLines((groupedSpecs.get(category.name) ?? []).sort(sortLines)),
+  }));
+
+  const missingCategories = [...groupedSpecs.keys()]
+    .filter((name) => !drafts.some((draft) => draft.name === name))
+    .sort((left, right) => left.localeCompare(right, "fr"));
+
+  for (const name of missingCategories) {
+    drafts.push({
+      localId: buildLocalId("category"),
+      name,
+      order_index: drafts.length,
+      lines: reindexLines((groupedSpecs.get(name) ?? []).sort(sortLines)),
+    });
+  }
+
+  return reindexCategories(drafts.sort((left, right) => left.order_index - right.order_index));
 }
 
 export default function VehicleSpecsModal({ vehicle, onClose, onSaved }: VehicleSpecsModalProps) {
-  const categoryListId = useId();
-  const labelListPrefix = useId();
   const { showToast } = useToast();
-  const [drafts, setDrafts] = useState<VehicleSpecDraft[]>([]);
+  const [categories, setCategories] = useState<CategoryDraft[]>([]);
+  const [editingCategoryLocalId, setEditingCategoryLocalId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+  );
 
   useEffect(() => {
     setLoading(true);
     setError(null);
 
-    void listVehicleSpecs(vehicle.id)
-      .then((specs) => {
-        setDrafts(specs.map(specToDraft));
+    void listVehicleSpecSheet(vehicle.id)
+      .then((sheet) => {
+        setCategories(groupSheet(sheet.categories, sheet.specs));
       })
       .catch((currentError) => {
         setError(typeof currentError === "string" ? currentError : "Impossible de charger la fiche technique.");
@@ -126,112 +257,137 @@ export default function VehicleSpecsModal({ vehicle, onClose, onSaved }: Vehicle
       .finally(() => setLoading(false));
   }, [vehicle.id]);
 
-  const categories = useMemo(() => {
-    const customCategories = drafts
-      .map((draft) => normalizeCategory(draft.category))
-      .filter((category) => !SUGGESTED_CATEGORIES.includes(category))
-      .sort((left, right) => left.localeCompare(right, "fr"));
-
-    return [...SUGGESTED_CATEGORIES, ...customCategories];
-  }, [drafts]);
-
-  function setDraftField(localId: string, field: "label" | "value" | "extra") {
-    return (event: React.ChangeEvent<HTMLInputElement>) => {
-      const nextValue = event.target.value;
-      setDrafts((current) => current.map((draft) => (
-        draft.localId === localId ? { ...draft, [field]: nextValue } : draft
-      )));
-    };
+  function updateCategory(localId: string, updater: (category: CategoryDraft) => CategoryDraft): void {
+    setCategories((current) => current.map((category) => (
+      category.localId === localId ? updater(category) : category
+    )));
   }
 
-  function setDraftCategory(localId: string) {
-    return (event: React.ChangeEvent<HTMLInputElement>) => {
-      const nextCategory = normalizeCategory(event.target.value);
-      setDrafts((current) => {
-        const target = current.find((draft) => draft.localId === localId);
-        if (!target) {
-          return current;
-        }
-
-        const withoutTarget = current.filter((draft) => draft.localId !== localId);
-        const nextDraft = {
-          ...target,
-          category: nextCategory,
-          order_index: getNextOrderIndex(withoutTarget, nextCategory),
-        };
-
-        return reindexCategory([...withoutTarget, nextDraft], target.category);
-      });
-    };
-  }
-
-  function trimDraftField(localId: string, field: "category" | "label" | "value" | "extra") {
-    return (event: React.FocusEvent<HTMLInputElement>) => {
-      const nextValue = field === "category"
-        ? normalizeCategory(event.target.value)
-        : trimDraftValue(event.target.value);
-
-      setDrafts((current) => current.map((draft) => (
-        draft.localId === localId ? { ...draft, [field]: nextValue } : draft
-      )));
-    };
-  }
-
-  function addDraft(category: string) {
-    setDrafts((current) => [
-      ...current,
-      {
-        localId: `draft-${crypto.randomUUID()}`,
-        category,
-        label: "",
-        value: "",
-        extra: "",
-        order_index: getNextOrderIndex(current, category),
-      },
-    ]);
-  }
-
-  function deleteDraft(localId: string) {
-    setDrafts((current) => {
-      const target = current.find((draft) => draft.localId === localId);
-      if (!target) {
-        return current;
-      }
-
-      return reindexCategory(
-        current.filter((draft) => draft.localId !== localId),
-        target.category,
-      );
+  function addCategory() {
+    setError(null);
+    setCategories((current) => {
+      const localId = buildLocalId("category");
+      const nextCategory: CategoryDraft = {
+        localId,
+        name: buildDefaultCategoryName(current),
+        order_index: current.length,
+        lines: [],
+      };
+      setEditingCategoryLocalId(localId);
+      return reindexCategories([...current, nextCategory]);
     });
   }
 
-  function moveDraft(localId: string, direction: -1 | 1) {
-    setDrafts((current) => {
-      const target = current.find((draft) => draft.localId === localId);
-      if (!target) {
-        return current;
-      }
+  function handleDeleteCategory(localId: string) {
+    const category = categories.find((current) => current.localId === localId);
+    if (!category) {
+      return;
+    }
 
-      const category = normalizeCategory(target.category);
-      const categoryDrafts = current
-        .filter((draft) => normalizeCategory(draft.category) === category)
-        .sort(sortDrafts);
-      const index = categoryDrafts.findIndex((draft) => draft.localId === localId);
+    const confirmed = window.confirm(
+      `Supprimer la catégorie "${category.name}" et toutes ses lignes ?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCategories((current) => reindexCategories(current.filter((item) => item.localId !== localId)));
+  }
+
+  function moveCategory(localId: string, direction: -1 | 1) {
+    setCategories((current) => {
+      const index = current.findIndex((category) => category.localId === localId);
       const nextIndex = index + direction;
-
-      if (index < 0 || nextIndex < 0 || nextIndex >= categoryDrafts.length) {
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
         return current;
       }
 
-      const reordered = [...categoryDrafts];
+      const reordered = [...current];
       const [moved] = reordered.splice(index, 1);
       reordered.splice(nextIndex, 0, moved);
+      return reindexCategories(reordered);
+    });
+  }
 
-      const updatedById = new Map(
-        reordered.map((draft, orderIndex) => [draft.localId, { ...draft, order_index: orderIndex }]),
-      );
+  function addLine(categoryLocalId: string) {
+    updateCategory(categoryLocalId, (category) => ({
+      ...category,
+      lines: [...category.lines, createEmptyLine(category.lines.length)],
+    }));
+  }
 
-      return current.map((draft) => updatedById.get(draft.localId) ?? draft);
+  function deleteLine(categoryLocalId: string, lineLocalId: string) {
+    updateCategory(categoryLocalId, (category) => ({
+      ...category,
+      lines: reindexLines(category.lines.filter((line) => line.localId !== lineLocalId)),
+    }));
+  }
+
+  function setCategoryName(categoryLocalId: string) {
+    return (event: React.ChangeEvent<HTMLInputElement>) => {
+      const nextName = event.target.value;
+      updateCategory(categoryLocalId, (category) => ({ ...category, name: nextName }));
+    };
+  }
+
+  function trimCategoryName(categoryLocalId: string) {
+    return (event: React.FocusEvent<HTMLInputElement>) => {
+      const nextName = trimValue(event.target.value);
+      updateCategory(categoryLocalId, (category) => ({ ...category, name: nextName }));
+      setEditingCategoryLocalId((current) => (current === categoryLocalId ? null : current));
+    };
+  }
+
+  function setLineField(
+    categoryLocalId: string,
+    lineLocalId: string,
+    field: keyof Omit<SpecLineDraft, "localId" | "order_index">,
+  ) {
+    return (event: React.ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value;
+      updateCategory(categoryLocalId, (category) => ({
+        ...category,
+        lines: category.lines.map((line) => (
+          line.localId === lineLocalId ? { ...line, [field]: nextValue } : line
+        )),
+      }));
+    };
+  }
+
+  function trimLineField(
+    categoryLocalId: string,
+    lineLocalId: string,
+    field: keyof Omit<SpecLineDraft, "localId" | "order_index">,
+  ) {
+    return (event: React.FocusEvent<HTMLInputElement>) => {
+      const nextValue = trimValue(event.target.value);
+      updateCategory(categoryLocalId, (category) => ({
+        ...category,
+        lines: category.lines.map((line) => (
+          line.localId === lineLocalId ? { ...line, [field]: nextValue } : line
+        )),
+      }));
+    };
+  }
+
+  function handleLineDragEnd(categoryLocalId: string, event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    updateCategory(categoryLocalId, (category) => {
+      const oldIndex = category.lines.findIndex((line) => line.localId === active.id);
+      const newIndex = category.lines.findIndex((line) => line.localId === over.id);
+      if (oldIndex < 0 || newIndex < 0) {
+        return category;
+      }
+
+      return {
+        ...category,
+        lines: reindexLines(arrayMove(category.lines, oldIndex, newIndex)),
+      };
     });
   }
 
@@ -239,48 +395,75 @@ export default function VehicleSpecsModal({ vehicle, onClose, onSaved }: Vehicle
     event.preventDefault();
     setError(null);
 
-    const cleanedDrafts = drafts.map(normalizeDraft);
-    const filteredDrafts = cleanedDrafts.filter((draft) => !isDraftCompletelyEmpty(draft));
+    const normalizedCategories = categories.map((category, categoryIndex) => ({
+      ...category,
+      name: trimValue(category.name),
+      order_index: categoryIndex,
+      lines: reindexLines(category.lines.map((line) => ({
+        ...line,
+        label: trimValue(line.label),
+        value: trimValue(line.value),
+        extra: trimValue(line.extra),
+      }))),
+    }));
 
-    const invalidDraft = filteredDrafts.find((draft) => !draft.label || !draft.value);
-    if (invalidDraft) {
-      setError("Chaque ligne enregistrée doit contenir un libellé et une valeur. Les lignes vides sont ignorées.");
+    const emptyCategory = normalizedCategories.find((category) => !category.name);
+    if (emptyCategory) {
+      setError("Chaque catégorie doit avoir un nom.");
       return;
     }
 
-    const seen = new Set<string>();
-    const payload: VehicleSpecInput[] = [];
+    const duplicateCategory = normalizedCategories.find((category, index) =>
+      normalizedCategories.findIndex((current) =>
+        current.name.localeCompare(category.name, "fr", { sensitivity: "accent" }) === 0,
+      ) !== index,
+    );
+    if (duplicateCategory) {
+      setError("Les catégories doivent avoir des noms distincts.");
+      return;
+    }
 
-    for (const draft of filteredDrafts) {
-      const duplicateKey = [
-        draft.category,
-        draft.label,
-        draft.value,
-        draft.extra,
-      ].join("|");
-
-      if (seen.has(duplicateKey)) {
-        continue;
+    const cleanedSpecs: VehicleSpecInput[] = [];
+    for (const category of normalizedCategories) {
+      const filteredLines = category.lines.filter((line) => !isLineEmpty(line));
+      const invalidLine = filteredLines.find(isLineIncomplete);
+      if (invalidLine) {
+        setError("Chaque ligne enregistrée doit contenir un libellé et une valeur.");
+        return;
       }
 
-      seen.add(duplicateKey);
-      payload.push({
-        category: draft.category,
-        label: draft.label,
-        value: draft.value,
-        extra: draft.extra || null,
-        order_index: draft.order_index,
-      });
+      const seen = new Set<string>();
+      for (const line of filteredLines) {
+        const duplicateKey = [category.name, line.label, line.value, line.extra].join("|");
+        if (seen.has(duplicateKey)) {
+          continue;
+        }
+
+        seen.add(duplicateKey);
+        cleanedSpecs.push({
+          category: category.name,
+          label: line.label,
+          value: line.value,
+          extra: line.extra || null,
+          order_index: line.order_index,
+        });
+      }
     }
+
+    const payload: SaveVehicleSpecSheetInput = {
+      vehicle_id: vehicle.id,
+      categories: normalizedCategories.map((category) => ({
+        name: category.name,
+        order_index: category.order_index,
+      })),
+      specs: cleanedSpecs,
+    };
 
     setSubmitting(true);
     try {
-      const savedSpecs = await saveVehicleSpecs({
-        vehicle_id: vehicle.id,
-        specs: payload,
-      });
-      setDrafts(savedSpecs.map(specToDraft));
-      onSaved(savedSpecs);
+      const sheet = await saveVehicleSpecSheet(payload);
+      setCategories(groupSheet(sheet.categories, sheet.specs));
+      onSaved(sheet.specs);
       showToast("Fiche technique enregistrée");
       onClose();
     } catch (currentError) {
@@ -292,7 +475,7 @@ export default function VehicleSpecsModal({ vehicle, onClose, onSaved }: Vehicle
 
   return (
     <ModalFrame
-      title={`Spécifications du véhicule · ${vehicle.name}`}
+      title={`Fiche technique – ${vehicle.name}`}
       onClose={onClose}
       className="modal--wide"
     >
@@ -300,149 +483,151 @@ export default function VehicleSpecsModal({ vehicle, onClose, onSaved }: Vehicle
         <div className="modal__body">
           {error && <div className="error-banner">{error}</div>}
 
-          <div className="specs-intro">
-            <h3 className="specs-intro__title">Fiche technique enrichie</h3>
-            <p className="specs-intro__body">
-              Organisez les informations utiles par sections, avec un libellé, une valeur et un complément optionnel.
-            </p>
-          </div>
-
           {loading ? (
             <div className="empty-state empty-state--compact">
               <p className="empty-state__title">Chargement en cours</p>
               <p className="empty-state__body">Préparation de la fiche technique du véhicule.</p>
             </div>
+          ) : categories.length === 0 ? (
+            <div className="specs-empty">
+              <p className="empty-state__title">Aucune catégorie pour le moment</p>
+              <button type="button" className="btn btn--primary" onClick={addCategory}>
+                + Ajouter une catégorie
+              </button>
+            </div>
           ) : (
             <div className="specs-sections">
-              {categories.map((category) => {
-                const categoryDrafts = drafts
-                  .filter((draft) => normalizeCategory(draft.category) === category)
-                  .sort(sortDrafts);
+              <div className="specs-toolbar">
+                <button type="button" className="btn btn--secondary specs-toolbar__add" onClick={addCategory}>
+                  + Ajouter une catégorie
+                </button>
+              </div>
 
-                return (
-                  <section key={category} className="specs-section">
-                    <div className="specs-section__header">
-                      <div>
-                        <h3 className="specs-section__title">{category}</h3>
-                        <p className="specs-section__subtitle">
-                          Informations pratiques modifiables ligne par ligne.
-                        </p>
-                      </div>
-                      <button type="button" className="btn btn--secondary btn--sm" onClick={() => addDraft(category)}>
+              {categories.map((category, categoryIndex) => (
+                <section key={category.localId} className="specs-section">
+                  <div className="specs-section__header">
+                    <div className="specs-section__title-wrap">
+                      {editingCategoryLocalId === category.localId ? (
+                        <input
+                          className="specs-section__title-input"
+                          value={category.name}
+                          onChange={setCategoryName(category.localId)}
+                          onBlur={trimCategoryName(category.localId)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.currentTarget.blur();
+                            }
+                            if (event.key === "Escape") {
+                              setEditingCategoryLocalId(null);
+                              event.currentTarget.blur();
+                            }
+                          }}
+                          placeholder="Nom de la catégorie"
+                          autoFocus
+                        />
+                      ) : (
+                        <h3 className="specs-section__title">
+                          {trimValue(category.name) || "Catégorie sans nom"}
+                        </h3>
+                      )}
+                    </div>
+                    <div className="specs-section__actions">
+                      <button
+                        type="button"
+                        className="specs-section__icon-btn"
+                        onClick={() => setEditingCategoryLocalId(category.localId)}
+                        aria-label="Renommer la catégorie"
+                        title="Renommer la catégorie"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        type="button"
+                        className="specs-section__move-btn"
+                        onClick={() => moveCategory(category.localId, -1)}
+                        disabled={categoryIndex === 0}
+                        aria-label="Monter la catégorie"
+                        title="Monter la catégorie"
+                      >
+                        ˄
+                      </button>
+                      <button
+                        type="button"
+                        className="specs-section__move-btn"
+                        onClick={() => moveCategory(category.localId, 1)}
+                        disabled={categoryIndex === categories.length - 1}
+                        aria-label="Descendre la catégorie"
+                        title="Descendre la catégorie"
+                      >
+                        ˅
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        onClick={() => addLine(category.localId)}
+                      >
+                        + Ajouter une ligne
+                      </button>
+                      <button
+                        type="button"
+                        className="specs-section__icon-btn"
+                        onClick={() => handleDeleteCategory(category.localId)}
+                        aria-label="Supprimer la catégorie"
+                        title="Supprimer la catégorie"
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  </div>
+
+                  {category.lines.length === 0 ? (
+                    <div className="specs-section__empty">
+                      <span>Aucune ligne pour le moment.</span>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        onClick={() => addLine(category.localId)}
+                      >
                         + Ajouter une ligne
                       </button>
                     </div>
-
-                    {categoryDrafts.length === 0 ? (
-                      <div className="specs-section__empty">
-                        Aucune information dans cette section pour le moment.
-                      </div>
-                    ) : (
-                      <div className="specs-list">
-                        {categoryDrafts.map((draft, index) => (
-                          <div key={draft.localId} className="specs-row">
-                            {isDraftIncomplete(draft) && (
-                              <div className="specs-row__hint">
-                                Renseignez à la fois le libellé et la valeur, sinon la ligne ne sera pas enregistrée.
-                              </div>
-                            )}
-                            <div className="specs-row__grid">
-                              <div>
-                                <label className="form-label">Catégorie</label>
-                                <input
-                                  className="form-input"
-                                  value={draft.category}
-                                  onChange={setDraftCategory(draft.localId)}
-                                  onBlur={trimDraftField(draft.localId, "category")}
-                                  list={categoryListId}
-                                  placeholder="ex. Pneumatiques"
-                                />
-                              </div>
-                              <div>
-                                <label className="form-label form-label--required">Libellé</label>
-                                <input
-                                  className="form-input"
-                                  value={draft.label}
-                                  onChange={setDraftField(draft.localId, "label")}
-                                  onBlur={trimDraftField(draft.localId, "label")}
-                                  list={`${labelListPrefix}-${draft.localId}`}
-                                  placeholder="ex. Pneus"
-                                />
-                                <datalist id={`${labelListPrefix}-${draft.localId}`}>
-                                  {[
-                                    ...(LABEL_SUGGESTIONS_BY_CATEGORY[normalizeCategory(draft.category)] ?? []),
-                                    ...drafts
-                                      .filter((current) => normalizeCategory(current.category) === normalizeCategory(draft.category))
-                                      .map((current) => trimDraftValue(current.label))
-                                      .filter(Boolean),
-                                  ]
-                                    .filter((label, labelIndex, source) => source.indexOf(label) === labelIndex)
-                                    .map((label) => (
-                                      <option key={label} value={label} />
-                                    ))}
-                                </datalist>
-                              </div>
-                              <div>
-                                <label className="form-label form-label--required">Valeur</label>
-                                <input
-                                  className="form-input"
-                                  value={draft.value}
-                                  onChange={setDraftField(draft.localId, "value")}
-                                  onBlur={trimDraftField(draft.localId, "value")}
-                                  placeholder="ex. 225/55 R18 98 V"
-                                />
-                              </div>
-                              <div>
-                                <label className="form-label">Complément</label>
-                                <input
-                                  className="form-input"
-                                  value={draft.extra}
-                                  onChange={setDraftField(draft.localId, "extra")}
-                                  onBlur={trimDraftField(draft.localId, "extra")}
-                                  placeholder="ex. Référence ou note complémentaire"
-                                />
-                              </div>
-                            </div>
-                            <div className="specs-row__actions">
-                              <button
-                                type="button"
-                                className="btn btn--secondary btn--sm"
-                                onClick={() => moveDraft(draft.localId, -1)}
-                                disabled={index === 0}
-                              >
-                                Monter
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--secondary btn--sm"
-                                onClick={() => moveDraft(draft.localId, 1)}
-                                disabled={index === categoryDrafts.length - 1}
-                              >
-                                Descendre
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn--secondary btn--sm"
-                                onClick={() => deleteDraft(draft.localId)}
-                              >
-                                Supprimer
-                              </button>
-                            </div>
+                  ) : (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={(event) => handleLineDragEnd(category.localId, event)}
+                    >
+                      <SortableContext
+                        items={category.lines.map((line) => line.localId)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="specs-list">
+                          <div className="specs-list__header">
+                            <span>Libellé</span>
+                            <span>Valeur</span>
+                            <span>Complément</span>
+                            <span className="specs-list__header-actions">Actions</span>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
+                          {category.lines.map((line) => {
+                            return (
+                              <SortableSpecLineRow
+                                key={line.localId}
+                                line={line}
+                                incomplete={isLineIncomplete(line)}
+                                onFieldChange={(lineLocalId, field) => setLineField(category.localId, lineLocalId, field)}
+                                onFieldBlur={(lineLocalId, field) => trimLineField(category.localId, lineLocalId, field)}
+                                onDelete={(lineLocalId) => deleteLine(category.localId, lineLocalId)}
+                              />
+                            );
+                          })}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  )}
+                </section>
+              ))}
             </div>
           )}
-
-          <datalist id={categoryListId}>
-            {SUGGESTED_CATEGORIES.map((category) => (
-              <option key={category} value={category} />
-            ))}
-          </datalist>
         </div>
 
         <div className="modal__footer">

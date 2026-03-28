@@ -55,6 +55,18 @@ export interface VehicleSpec {
   order_index: number;
 }
 
+export interface VehicleSpecCategory {
+  id: string;
+  vehicle_id: string;
+  name: string;
+  order_index: number;
+}
+
+export interface VehicleSpecSheet {
+  categories: VehicleSpecCategory[];
+  specs: VehicleSpec[];
+}
+
 export interface VehicleSpecInput {
   category: string;
   label: string;
@@ -65,5 +77,16 @@ export interface VehicleSpecInput {
 
 export interface SaveVehicleSpecsInput {
   vehicle_id: string;
+  specs: VehicleSpecInput[];
+}
+
+export interface VehicleSpecCategoryInput {
+  name: string;
+  order_index: number;
+}
+
+export interface SaveVehicleSpecSheetInput {
+  vehicle_id: string;
+  categories: VehicleSpecCategoryInput[];
   specs: VehicleSpecInput[];
 }
