@@ -992,25 +992,25 @@ function FuelRow({ entry, canEdit, onEdit, onDelete }: FuelRowProps) {
         }
       }}
     >
-      <td>{formatDisplayDate(entry.entry_date)}</td>
+      <td className="cell--primary">{formatDisplayDate(entry.entry_date)}</td>
       <td className="cell--number">{formatInteger(entry.mileage)}</td>
       <td className="cell--number">{formatInteger(entry.trip_distance_km)}</td>
       <td className="cell--number">{formatQuantity(entry.liters)}</td>
-      <td className="cell--number">{formatMoneyAmount(entry.total_price_cents)}</td>
+      <td className="cell--number data-table__metric">{formatMoneyAmount(entry.total_price_cents)}</td>
       <td className="cell--number">{formatUnitPrice(entry.price_per_liter_millis)}</td>
-      <td className="cell--number">{formatConsumption(entry.consumption_l_per_100)}</td>
-      <td>
-        <span className="badge badge--neutral">{entry.energy_type_label}</span>
+      <td className="cell--number data-table__metric">{formatConsumption(entry.consumption_l_per_100)}</td>
+      <td className="cell--secondary">
+        <span className="badge badge--info">{entry.energy_type_label}</span>
       </td>
-      <td>{entry.station ?? <span className="data-table__muted">—</span>}</td>
-      <td>
+      <td className="cell--secondary">{entry.station ?? <span className="data-table__muted">—</span>}</td>
+      <td className="cell--secondary">
         {entry.is_full_tank ? (
           <span className="badge badge--neutral">Complet</span>
         ) : (
           <span className="badge badge--warning">Partiel</span>
         )}
       </td>
-      <td>
+      <td className="cell--actions">
         <div className="table-actions">
           <button className="btn btn--secondary btn--sm" onClick={() => onEdit(entry)} disabled={!canEdit}>
             Modifier
@@ -1336,7 +1336,7 @@ export default function FuelPage() {
             </div>
           </div>
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table data-table--fuel">
               <thead>
                 <tr>
                   <th>Date</th>
@@ -1349,7 +1349,7 @@ export default function FuelPage() {
                   <th>Énergie</th>
                   <th>Lieu</th>
                   <th>Plein</th>
-                  <th></th>
+                  <th className="cell--actions">Actions</th>
                 </tr>
               </thead>
               <tbody>

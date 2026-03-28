@@ -538,12 +538,12 @@ function VehicleRow({ vehicle, energyTypeLabels, summarySpecs, onEdit, onManageS
         }
       }}
     >
-      <td>
-        <div className="data-table__title">{vehicle.name}</div>
+      <td className="cell--primary">
+        <div className="data-table__title data-table__title--strong">{vehicle.name}</div>
         {subtitle && <div className="data-table__muted">{subtitle}</div>}
       </td>
-      <td>{vehicle.registration ?? <span className="data-table__muted">—</span>}</td>
-      <td>
+      <td className="cell--secondary">{vehicle.registration ?? <span className="data-table__muted">—</span>}</td>
+      <td className="cell--secondary">
         {vehicle.powertrain_type ? (
           <>
             <span className={getPowertrainBadgeClass(vehicle.powertrain_type)}>
@@ -560,8 +560,8 @@ function VehicleRow({ vehicle, energyTypeLabels, summarySpecs, onEdit, onManageS
           <span className="data-table__muted">—</span>
         )}
       </td>
-      <td>{vehicle.initial_mileage.toLocaleString("fr-FR")} km</td>
-      <td>
+      <td className="cell--number data-table__metric">{vehicle.initial_mileage.toLocaleString("fr-FR")} km</td>
+      <td className="cell--secondary">
         {summarySpecs.length > 0 ? (
           <div className="vehicle-specs-preview">
             {summarySpecs.map((spec) => (
@@ -578,7 +578,7 @@ function VehicleRow({ vehicle, energyTypeLabels, summarySpecs, onEdit, onManageS
           <span className="data-table__muted">Aucune fiche technique</span>
         )}
       </td>
-      <td>
+      <td className="cell--actions">
         {vehicle.is_archived ? (
           <div className="table-actions">
             <span className="badge badge--neutral">Archivé</span>
@@ -758,15 +758,15 @@ export default function VehiclesPage() {
             </div>
           </div>
           <div className="table-scroll">
-            <table className="data-table">
+            <table className="data-table data-table--vehicles">
               <thead>
                 <tr>
                   <th>Véhicule</th>
                   <th>Immatriculation</th>
                   <th>Motorisation</th>
-                  <th>Kilométrage initial</th>
+                  <th className="cell--number">Kilométrage initial</th>
                   <th>Fiche technique</th>
-                  <th></th>
+                  <th className="cell--actions">Actions</th>
                 </tr>
               </thead>
               <tbody>

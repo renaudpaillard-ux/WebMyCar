@@ -1,74 +1,57 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  BellRing,
+  CarFront,
+  FileText,
+  Fuel,
+  Gauge,
+  LayoutDashboard,
+  Wrench,
+} from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 interface NavItem {
   to: string;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   caption: string;
 }
 
 const mainNav: NavItem[] = [
-  { to: "/dashboard", label: "Tableau de bord", icon: "⊞", caption: "Vue d'ensemble" },
-  { to: "/vehicles", label: "Véhicules", icon: "◈", caption: "Fiches et profils" },
-  { to: "/odometer", label: "Kilométrage", icon: "◎", caption: "Historique des relevés" },
-  { to: "/fuel", label: "Carburant", icon: "⊕", caption: "Pleins et recharges" },
-  { to: "/maintenance", label: "Entretien", icon: "⚙", caption: "Suivi des opérations" },
-  { to: "/reminders", label: "Échéances", icon: "◷", caption: "Alertes à venir" },
-  { to: "/documents", label: "Documents", icon: "◻", caption: "Pièces et justificatifs" },
+  { to: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard, caption: "Vue d'ensemble" },
+  { to: "/vehicles", label: "Véhicules", icon: CarFront, caption: "Fiches et profils" },
+  { to: "/odometer", label: "Kilométrage", icon: Gauge, caption: "Historique des relevés" },
+  { to: "/fuel", label: "Carburant", icon: Fuel, caption: "Pleins et recharges" },
+  { to: "/maintenance", label: "Entretien", icon: Wrench, caption: "Suivi des opérations" },
+  { to: "/reminders", label: "Échéances", icon: BellRing, caption: "Alertes à venir" },
+  { to: "/documents", label: "Documents", icon: FileText, caption: "Pièces et justificatifs" },
 ];
 
-const bottomNav: NavItem[] = [];
+function SidebarLink({ item }: { item: NavItem }) {
+  return (
+    <NavLink
+      to={item.to}
+      className={({ isActive }) => "sidebar__link" + (isActive ? " active" : "")}
+    >
+      <span className="sidebar__link-icon" aria-hidden="true">
+        <item.icon className="sidebar__link-icon-svg" strokeWidth={2} />
+      </span>
+      <span className="sidebar__link-text">
+        <span className="sidebar__link-label">{item.label}</span>
+        <span className="sidebar__link-caption">{item.caption}</span>
+      </span>
+    </NavLink>
+  );
+}
 
 export default function Sidebar() {
   return (
     <nav className="sidebar">
-      <div className="sidebar__brand">
-        <div className="sidebar__brand-mark" aria-hidden="true">W</div>
-        <div className="sidebar__brand-text">
-          <div className="sidebar__brand-title">WebMyCar</div>
-          <div className="sidebar__brand-subtitle">Gestion automobile personnelle</div>
-        </div>
-      </div>
-
       <div className="sidebar__nav">
-        <div className="sidebar__section-label">Navigation</div>
         {mainNav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) => "sidebar__link" + (isActive ? " active" : "")}
-          >
-            <span className="sidebar__link-icon" aria-hidden="true">
-              {item.icon}
-            </span>
-            <span className="sidebar__link-text">
-              <span className="sidebar__link-label">{item.label}</span>
-              <span className="sidebar__link-caption">{item.caption}</span>
-            </span>
-          </NavLink>
+          <SidebarLink key={item.to} item={item} />
         ))}
       </div>
-
-      {bottomNav.length > 0 && (
-        <div className="sidebar__footer">
-          <div className="sidebar__section-label">Application</div>
-          {bottomNav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => "sidebar__link" + (isActive ? " active" : "")}
-            >
-              <span className="sidebar__link-icon" aria-hidden="true">
-                {item.icon}
-              </span>
-              <span className="sidebar__link-text">
-                <span className="sidebar__link-label">{item.label}</span>
-                <span className="sidebar__link-caption">{item.caption}</span>
-              </span>
-            </NavLink>
-          ))}
-        </div>
-      )}
     </nav>
   );
 }
